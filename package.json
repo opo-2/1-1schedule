@@ -1,0 +1,67 @@
+{
+  "name": "schedule-app",
+  "version": "1.0.0",
+  "description": "日程管理桌面应用",
+  "main": "electron/main.js",
+  "scripts": {
+    "dev": "vite",
+    "electron:dev": "concurrently \"vite\" \"wait-on http://localhost:5173 && electron .\"",
+    "build": "vite build",
+    "electron:build": "node -e \"try{require('fs').rmSync('dist',{recursive:true,force:true})}catch(e){}\" && vite build && node -e \"require('fs').cpSync('index.html','dist/index.html')\" && electron-builder",
+    "electron:build:win": "node -e \"try{require('fs').rmSync('dist',{recursive:true,force:true})}catch(e){}\" && vite build && node -e \"require('fs').cpSync('index.html','dist/index.html')\" && electron-builder --win",
+    "electron:build:mac": "node -e \"try{require('fs').rmSync('dist',{recursive:true,force:true})}catch(e){}\" && vite build && node -e \"require('fs').cpSync('index.html','dist/index.html')\" && electron-builder --mac"
+  },
+  "dependencies": {
+    "antd": "^5.22.0",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "dayjs": "^1.11.13"
+  },
+  "devDependencies": {
+    "@types/react": "^18.3.12",
+    "@types/react-dom": "^18.3.1",
+    "@vitejs/plugin-react": "^4.3.4",
+    "concurrently": "^9.1.0",
+    "electron": "^33.2.0",
+    "electron-builder": "^25.1.8",
+    "typescript": "^5.6.3",
+    "vite": "^6.0.3",
+    "wait-on": "^8.0.1"
+  },
+  "allowScripts": {
+    "electron@33.4.11": true,
+    "esbuild@0.25.12": true
+  },
+  "build": {
+    "appId": "com.schedule.app",
+    "productName": "1+1schedule",
+    "directories": {
+      "output": "dist-exe"
+    },
+    "files": [
+      "dist/**/*",
+      "electron/**/*",
+      "静默启动.bat"
+    ],
+    "extraResources": [
+      {
+        "from": "静默启动.bat",
+        "to": "静默启动.bat"
+      }
+    ],
+    "win": {
+      "icon": "build/icon.png",
+      "target": ["dir"],
+      "signAndEditExecutable": false
+    },
+    "mac": {
+      "icon": "build/icon.png",
+      "target": ["dmg", "dir"],
+      "category": "public.app-category.productivity"
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true
+    }
+  }
+}

@@ -1,0 +1,11 @@
+node_modules/
+dist/
+dist-exe/
+build-output/
+release/
+.DS_Store
+*.log
+install.js
+package_new.json
+typescript.tgz
+npm_output.txt

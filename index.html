@@ -1,0 +1,1293 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>1+1schedule</title>
+  <link rel="icon" type="image/png" href="favicon.png">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/antd@5.22.0/dist/reset.css">
+  <script src="https://cdn.jsdelivr.net/npm/@babel/standalone@7.26.0/babel.min.js"></script>
+  <script crossorigin src="https://cdn.jsdelivr.net/npm/react@18.3.1/umd/react.production.min.js"></script>
+  <script crossorigin src="https://cdn.jsdelivr.net/npm/react-dom@18.3.1/umd/react-dom.production.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/dayjs@1.11.13/dayjs.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/antd@5.22.0/dist/antd.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@ant-design/icons@5.5.0/dist/index.umd.min.js"></script>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    html, body { height: 100%; font-family: -apple-system, BlinkMacSystemFont, 'PingFang SC', 'Microsoft YaHei', sans-serif; background: #f8f8f6; }
+    #root { height: 100%; }
+    ::-webkit-scrollbar { width: 6px; height: 6px; }
+    ::-webkit-scrollbar-thumb { background: #ccc; border-radius: 3px; }
+    ::-webkit-scrollbar-track { background: transparent; }
+  </style>
+</head>
+<body>
+  <div id="root"></div>
+
+  <script type="text/babel" data-presets="env,react">
+    const { useState, useEffect, useRef, useMemo, useCallback } = React;
+    const { Button, Modal, Input, DatePicker, Select, Popconfirm, message, Tag, ColorPicker, ConfigProvider, Tooltip, Dropdown, Switch } = antd;
+    const { LeftOutlined, RightOutlined, DeleteOutlined, PlusOutlined, CloseOutlined, ClockCircleOutlined, EditOutlined, SettingOutlined, BellOutlined, DownloadOutlined, UploadOutlined, ExclamationCircleOutlined } = icons;
+    const dayjs = window.dayjs;
+
+    // ==================== 常量 & 工具 ====================
+    const MORANDI_COLORS = [
+      '#B5C4B1', '#C4A8A0', '#A3B5C7', '#B8A9C9',
+      '#C9B99A', '#C4A48E', '#A8C4BD', '#B5B0C0', '#B9BFAA'
+    ];
+    const CATEGORIES = ['实验','数据分析','文献','会议','写作','学习','饮食','休息','运动','通勤','办公','规划','开发','整理'];
+
+    function getColorForCategory(cat) {
+      if (!cat) return MORANDI_COLORS[0];
+      let hash = 0;
+      for (let i = 0; i < cat.length; i++) { hash = ((hash << 5) - hash) + cat.charCodeAt(i); hash |= 0; }
+      return MORANDI_COLORS[Math.abs(hash) % MORANDI_COLORS.length];
+    }
+    function minToTime(m) { const h = Math.floor(m/60), mm = m%60; return `${String(h).padStart(2,'0')}:${String(mm).padStart(2,'0')}`; }
+    function timeToMin(t) { const [h,m] = t.split(':').map(Number); return h*60+m; }
+    function todayStr() { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`; }
+    function generateId() { return `evt_${Date.now()}_${Math.random().toString(36).slice(2,8)}`; }
+    function textColor(hex) { const r=parseInt(hex.slice(1,3),16),g=parseInt(hex.slice(3,5),16),b=parseInt(hex.slice(5,7),16); return (r*0.299+g*0.587+b*0.114)>170?'#1a1a1a':'#fff'; }
+
+    // ==================== 数据存储 ====================
+    const STORAGE_KEY = 'schedule_events';
+    const NOTES_KEY = 'schedule_notes';
+    function loadAllEvents() { try { return JSON.parse(localStorage.getItem(STORAGE_KEY)||'[]'); } catch { return []; } }
+    function saveAllEvents(events) { localStorage.setItem(STORAGE_KEY, JSON.stringify(events)); }
+    function fetchEvents(start, end) { return loadAllEvents().filter(e => e.date >= start && e.date <= end); }
+    function saveEvent(evt) {
+      const all = loadAllEvents(); const idx = all.findIndex(e => e.id === evt.id);
+      if (idx >= 0) all[idx] = evt; else all.push(evt);
+      saveAllEvents(all);
+    }
+    function deleteEvent(id) { saveAllEvents(loadAllEvents().filter(e => e.id !== id)); }
+    function loadNotes() { try { return JSON.parse(localStorage.getItem(NOTES_KEY)||'{}'); } catch { return {}; } }
+    function saveNote(monday, text) { const n = loadNotes(); n[monday] = text; localStorage.setItem(NOTES_KEY, JSON.stringify(n)); }
+    function getNote(monday) { return loadNotes()[monday] || ''; }
+    const MOOD_KEY = 'schedule_moods';
+    const MOODS = [
+      { label: '很好', color: '#5FA85F' },
+      { label: '不错', color: '#96B84A' },
+      { label: '一般', color: '#D4A02F' },
+      { label: '不太好', color: '#D47752' },
+      { label: '糟糕', color: '#C94440' },
+    ];
+    function loadMoods() { try { return JSON.parse(localStorage.getItem(MOOD_KEY)||'{}'); } catch { return {}; } }
+    function saveMood(date, moodIdx) { const m = loadMoods(); m[date] = moodIdx; localStorage.setItem(MOOD_KEY, JSON.stringify(m)); }
+    const USAGE_KEY = 'schedule_usage';
+    function loadUsage() { try { return JSON.parse(localStorage.getItem(USAGE_KEY)||'{}'); } catch { return {}; } }
+    function incrementUsage(text) {
+      if (!text) return;
+      const u = loadUsage();
+      u[text] = (u[text] || 0) + 1;
+      localStorage.setItem(USAGE_KEY, JSON.stringify(u));
+    }
+    function getUsageFrequency(text) { return loadUsage()[text] || 0; }
+
+    // ==================== 常用项 ====================
+    const PRESETS = {
+      8: [{t:'早饭',c:'饮食'},{t:'通勤',c:'通勤'},{t:'晨会',c:'会议'},{t:'邮件处理',c:'办公'},{t:'整理计划',c:'规划'},{t:'晨读',c:'学习'}],
+      10:[{t:'实验',c:'实验'},{t:'数据分析',c:'数据分析'},{t:'文献阅读',c:'文献'},{t:'会议',c:'会议'},{t:'写报告',c:'写作'},{t:'代码编写',c:'开发'},{t:'样品处理',c:'实验'}],
+      12:[{t:'午饭',c:'饮食'},{t:'午休',c:'休息'},{t:'散步',c:'运动'},{t:'阅读',c:'学习'},{t:'咖啡',c:'饮食'}],
+      14:[{t:'实验',c:'实验'},{t:'会议',c:'会议'},{t:'写报告',c:'写作'},{t:'数据分析',c:'数据分析'},{t:'文献阅读',c:'文献'},{t:'仪器操作',c:'实验'},{t:'试剂管理',c:'实验'}],
+      16:[{t:'实验',c:'实验'},{t:'数据分析',c:'数据分析'},{t:'文献阅读',c:'文献'},{t:'整理数据',c:'数据分析'},{t:'写报告',c:'写作'},{t:'组会',c:'会议'}],
+      18:[{t:'晚饭',c:'饮食'},{t:'通勤',c:'通勤'},{t:'运动',c:'运动'},{t:'学习',c:'学习'},{t:'整理',c:'整理'},{t:'记录',c:'写作'}],
+      20:[{t:'学习',c:'学习'},{t:'阅读',c:'学习'},{t:'运动',c:'运动'},{t:'整理',c:'整理'},{t:'娱乐',c:'休息'}]
+    };
+    function getPresets(hour, customPresets) {
+      const keys = Object.keys(PRESETS).map(Number).sort((a,b)=>a-b);
+      let best = keys[0];
+      for (const k of keys) { if (k <= hour) best = k; else break; }
+      const builtIn = (PRESETS[best] || []).slice();
+      const custom = (customPresets && customPresets[hour]) || [];
+      // 合并后按使用频率降序
+      const merged = [...builtIn, ...custom];
+      merged.sort((a, b) => (getUsageFrequency(b.t) - getUsageFrequency(a.t)));
+      return merged;
+    }
+
+    // ==================== 设置存储 ====================
+    const SETTINGS_KEY = 'schedule_settings';
+    const DEFAULT_SETTINGS = {
+      triggerHours: [8, 10, 12, 14, 16, 18, 20],
+      rangeHours: 2,
+      customPresets: {},
+      snoozeMinutes: 0,
+      showNextPopupInHeader: true,
+      popupCountdown: 5,
+    };
+    function loadSettings() {
+      try { return { ...DEFAULT_SETTINGS, ...JSON.parse(localStorage.getItem(SETTINGS_KEY) || '{}') }; }
+      catch { return DEFAULT_SETTINGS; }
+    }
+    function saveSettings(s) { localStorage.setItem(SETTINGS_KEY, JSON.stringify(s)); }
+
+    // ==================== 时间条组件 ====================
+    function TimeBar({ startMin, endMin, totalMin, onChangeStart, onChangeEnd, colorBar, segments = [], showScale = true, baseMin = 0 }) {
+      const wrapRef = useRef(null);
+      const [trackW, setTrackW] = useState(380);
+      useEffect(() => {
+        const el = wrapRef.current;
+        if (!el) return;
+        const update = () => setTrackW(Math.max(200, el.clientWidth - 16));
+        update();
+        const ro = new ResizeObserver(update);
+        ro.observe(el);
+        return () => ro.disconnect();
+      }, []);
+      const [snapOn, setSnapOn] = useState(() => {
+        try { return JSON.parse(localStorage.getItem('bar_snap') ?? 'true'); }
+        catch { return true; }
+      });
+      // 任何变更都同步到 localStorage
+      useEffect(() => {
+        try { localStorage.setItem('bar_snap', JSON.stringify(snapOn)); }
+        catch {}
+      }, [snapOn]);
+      const minRange = 120;
+      const [zoomRange, setZoomRange] = useState(totalMin);
+      const [zoomStart, setZoomStart] = useState(0);
+
+      useEffect(() => { setZoomRange(totalMin); setZoomStart(0); }, [totalMin]);
+
+      // 内部用相对分钟换算
+      const toPx = m => zoomRange > 0 ? ((m - baseMin - zoomStart) / zoomRange) * trackW : 0;
+      const fromPx = px => Math.round((px / trackW) * zoomRange) + zoomStart + baseMin;
+      const snap = m => Math.round(m / 30) * 30;
+      const dragRef = useRef(null);
+      const sRef = useRef(startMin);
+      const eRef = useRef(endMin);
+      sRef.current = startMin;
+      eRef.current = endMin;
+
+      // 滚轮缩放：以选取区间中点为锚
+      const handleWheel = useCallback((e) => {
+        e.preventDefault();
+        if (e.ctrlKey) {
+          // Ctrl+滚轮：平移视窗
+          const pan = e.deltaY > 0 ? 60 : -60;
+          setZoomStart(z => Math.max(0, Math.min(totalMin - zoomRange, z + pan)));
+        } else {
+          // 普通滚轮：缩放
+          const anchorMin = (startMin + endMin) / 2;
+          const anchorPx = zoomRange > 0 ? ((anchorMin - zoomStart) / zoomRange) * trackW : trackW / 2;
+          const factor = e.deltaY < 0 ? 0.75 : 1.35;
+          const newRange = Math.max(minRange, Math.min(totalMin, Math.round(zoomRange * factor)));
+          const newStart = anchorMin - (anchorPx / trackW) * newRange;
+          setZoomRange(newRange);
+          setZoomStart(Math.max(0, Math.min(totalMin - newRange, Math.round(newStart))));
+        }
+      }, [zoomRange, zoomStart, totalMin, startMin, endMin]);
+
+      const handleDown = (type) => (e) => {
+        e.stopPropagation(); dragRef.current = type;
+        const rect = e.target.closest('.time-track').getBoundingClientRect();
+        const onMove = (ev) => {
+          const px = Math.max(0, Math.min(trackW, ev.clientX - rect.left));
+          let m = fromPx(px); // 1min 精度，不做吸附
+          if (dragRef.current === 'start') { if (m < eRef.current - 5) onChangeStart(m); }
+          else { if (m > sRef.current + 5) onChangeEnd(m); }
+        };
+        const onUp = () => {
+          if (dragRef.current === 'start') onChangeStart(snapOn ? snap(sRef.current) : sRef.current);
+          else onChangeEnd(snapOn ? snap(eRef.current) : eRef.current);
+          dragRef.current = null;
+          document.removeEventListener('mousemove', onMove);
+          document.removeEventListener('mouseup', onUp);
+        };
+        document.addEventListener('mousemove', onMove);
+        document.addEventListener('mouseup', onUp);
+      };
+
+      const sPx = toPx(startMin), ePx = toPx(endMin);
+
+      return (
+        <div ref={wrapRef} style={{width:'100%'}}>
+          <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:4}}>
+            <span style={{fontSize:11,color:'#bbb'}}>滚轮缩放</span>
+            <span style={{display:'flex',alignItems:'center',gap:6}}>
+              <span onClick={() => { const v = !snapOn; setSnapOn(v); localStorage.setItem('bar_snap', JSON.stringify(v)); }} style={{
+                fontSize:11, cursor:'pointer', userSelect:'none',
+                color: snapOn ? '#2c2c2c' : '#ccc',
+                background: snapOn ? '#e8e8e8' : 'transparent',
+                padding:'1px 6px', borderRadius:3, fontWeight: snapOn ? 600 : 400,
+                transition:'all 0.15s',
+              }} title={snapOn ? '吸附开启：松手时自动对齐到30分钟' : '吸附关闭：保留精确分钟'}>
+                {snapOn ? '吸附·开' : '吸附·关'}
+              </span>
+              <span style={{fontSize:11,color:'#bbb'}}>{(zoomRange/60).toFixed(1)}h / {(totalMin/60).toFixed(0)}h</span>
+            </span>
+          </div>
+          {/* 气泡标签：起点在上方、终点在下方，始终垂直分离 */}
+          <div style={{position:'relative',height:42,marginBottom:4}}>
+            <div style={{position:'absolute',top:0,left:Math.max(0,Math.min(trackW-55,sPx-5)),fontSize:11,fontWeight:600,color:colorBar||'#2c2c2c',fontFamily:'monospace',background:'#fff',padding:'0 5px',borderRadius:3,boxShadow:'0 1px 2px rgba(0,0,0,0.08)',zIndex:5,border:`1px solid ${colorBar||'#2c2c2c'}40`,whiteSpace:'nowrap',lineHeight:'18px'}}>
+              {minToTime(startMin)}{snapOn&&startMin%30!==0?<span style={{fontSize:9,color:'#aaa',fontWeight:400,marginLeft:3}}>→{minToTime(snap(startMin))}</span>:null}
+            </div>
+            <div style={{position:'absolute',bottom:0,left:Math.max(0,Math.min(trackW-55,ePx-5)),fontSize:11,fontWeight:600,color:colorBar||'#2c2c2c',fontFamily:'monospace',background:'#fff',padding:'0 5px',borderRadius:3,boxShadow:'0 1px 2px rgba(0,0,0,0.08)',zIndex:5,border:`1px solid ${colorBar||'#2c2c2c'}40`,whiteSpace:'nowrap',lineHeight:'18px'}}>
+              {minToTime(endMin)}{endMin%30!==0?<span style={{fontSize:9,color:'#aaa',fontWeight:400,marginLeft:3}}>→{minToTime(snap(endMin))}</span>:null}
+            </div>
+          </div>
+
+          {/* 轨道 */}
+          <div className="time-track" onWheel={handleWheel} style={{position:'relative',height:24,background:'#ececec',borderRadius:12,display:'flex',alignItems:'center',boxShadow:'inset 0 1px 2px rgba(0,0,0,0.04)',overflow:'visible'}}>
+            {segments.map(seg => (
+              <div key={seg.id} style={{position:'absolute',left:toPx(seg.startMin),width:toPx(seg.endMin)-toPx(seg.startMin),top:3,height:18,borderRadius:9,background:seg.status==='in_progress'?`repeating-linear-gradient(45deg,${seg.color},${seg.color}4px,${seg.color}884px,${seg.color}888px)`:seg.color,opacity:0.35,zIndex:1}}/>
+            ))}
+            <div style={{position:'absolute',left:sPx,width:ePx-sPx,top:3,height:18,borderRadius:9,zIndex:2,background:colorBar||'#2c2c2c',opacity:0.88,boxShadow:'0 1px 2px rgba(0,0,0,0.06)'}}/>
+            {/* 起点把手 < */}
+            <div style={{position:'absolute',top:3,left:sPx-10,width:18,height:18,background:'#fff',border:`2px solid ${colorBar||'#2c2c2c'}`,borderRadius:9,cursor:'grab',zIndex:4,display:'flex',alignItems:'center',justifyContent:'center',boxShadow:'0 1px 3px rgba(0,0,0,0.12)'}} onMouseDown={handleDown('start')}>
+              <span style={{fontSize:14,fontWeight:700,color:colorBar||'#2c2c2c',lineHeight:1,marginTop:-2}}>‹</span>
+            </div>
+            {/* 终点把手 > */}
+            <div style={{position:'absolute',top:3,left:ePx-8,width:18,height:18,background:'#fff',border:`2px solid ${colorBar||'#2c2c2c'}`,borderRadius:9,cursor:'grab',zIndex:4,display:'flex',alignItems:'center',justifyContent:'center',boxShadow:'0 1px 3px rgba(0,0,0,0.12)'}} onMouseDown={handleDown('end')}>
+              <span style={{fontSize:14,fontWeight:700,color:colorBar||'#2c2c2c',lineHeight:1,marginTop:-2}}>›</span>
+            </div>
+            {/* 30分钟刻度 */}
+            {showScale && Array.from({length:Math.floor(zoomRange/30)+1},(_,i)=>{
+              const m = zoomStart + i*30;
+              if(m < zoomStart || m > zoomStart + zoomRange) return null;
+              return <div key={m} style={{position:'absolute',left:toPx(m),top:i%2===0?12:16,width:1,height:i%2===0?10:5,background:i%2===0?'#bbb':'#d8d8d8',borderRadius:1}}/>;
+            })}
+          </div>
+
+          {showScale && (
+            <div style={{position:'relative',height:16,marginTop:3}}>
+              {Array.from({length:Math.floor(zoomRange/60)+2},(_,idx)=>{
+                const h = Math.floor((zoomStart)/60) + idx;
+                const m = h * 60;
+                if(m < zoomStart - 30 || m > zoomStart + zoomRange + 30) return null;
+                return <div key={h} style={{position:'absolute',left:toPx(m)-12,width:24,fontSize:10,color:'#aaa',fontFamily:'monospace',textAlign:'center'}}>{h}</div>;
+              })}
+            </div>
+          )}
+        </div>
+      );
+    }
+
+    // ==================== 共享编辑表单 ====================
+    function EventForm({ edit, setEdit, selDate, setSelDate, onSave, onDelete, isFull }) {
+      return (
+        <>
+          {/* 日期：完整模式下可选 */}
+          {isFull ? (
+            <div style={{marginBottom:14}}>
+              <label style={{display:'block',marginBottom:4,fontSize:12,color:'#888'}}>日期</label>
+              <DatePicker
+                style={{width:'100%'}}
+                value={selDate ? dayjs(selDate) : undefined}
+                onChange={d => { if(d) setSelDate(d.format('YYYY-MM-DD')); }}
+                placeholder="选择日期"
+              />
+            </div>
+          ) : (
+            <div style={{marginBottom:14}}>
+              <label style={{display:'block',marginBottom:4,fontSize:12,color:'#888'}}>日期</label>
+              <span style={{fontSize:14,color:'#2c2c2c'}}>{selDate||edit.date}</span>
+            </div>
+          )}
+
+          {/* 时间：统一使用拖动条 */}
+          <div style={{marginBottom:14}}>
+            <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:6}}>
+              <label style={{fontSize:12,color:'#888',margin:0}}>时间</label>
+              <Button size="small" type="default" onClick={() => {
+                const now = new Date();
+                const m = now.getHours() * 60 + now.getMinutes();
+                setEdit({...edit, endTime: minToTime(m), status: 'completed'});
+              }} style={{fontSize:12}}>到现在</Button>
+            </div>
+            <TimeBar
+              startMin={edit.startTime ? timeToMin(edit.startTime) : 480}
+              endMin={edit.endTime ? timeToMin(edit.endTime) : (edit.startTime ? timeToMin(edit.startTime) + 60 : 600)}
+              totalMin={1440}
+              onChangeStart={m => setEdit({...edit, startTime: minToTime(m)})}
+              onChangeEnd={m => setEdit({...edit, endTime: minToTime(m), status: 'completed'})}
+              colorBar={edit.categories?.[0] ? getColorForCategory(edit.categories[0]) : (edit.color || '#1a1a1a')}
+            />
+          </div>
+
+          <div style={{marginBottom:14}}><label style={{display:'block',marginBottom:4,fontSize:12,color:'#888'}}>内容</label>
+            <Input value={edit.description||''} onChange={e => setEdit({...edit, description: e.target.value})} placeholder="做了什么"/>
+          </div>
+
+          <div style={{display:'flex',gap:12}}>
+            <div style={{flex:1}}><label style={{display:'block',marginBottom:4,fontSize:12,color:'#888'}}>分类（可多选，首个为主）</label>
+              <Select mode="multiple" style={{width:'100%'}} value={edit.categories||[]} onChange={v => setEdit({...edit, categories: v})} placeholder="选择分类" allowClear maxTagCount={3}
+                options={CATEGORIES.map(c => ({value:c, label: <span><span style={{display:'inline-block',width:12,height:12,borderRadius:3,background:edit.color||getColorForCategory(c),marginRight:8,verticalAlign:'middle'}}/>{c}</span>}))}/>
+            </div>
+            <div style={{flex:1}}><label style={{display:'block',marginBottom:4,fontSize:12,color:'#888'}}>颜色</label>
+              <ColorPicker value={edit.color||(edit.categories?.[0]?getColorForCategory(edit.categories[0]):MORANDI_COLORS[0])}
+                onChange={(_,hex) => setEdit({...edit, color: hex})}
+                presets={[{label:'莫兰迪',colors:MORANDI_COLORS}]}>
+                <div style={{width:'100%',height:32,borderRadius:6,cursor:'pointer',
+                  background:edit.color||(edit.categories?.[0]?getColorForCategory(edit.categories[0]):MORANDI_COLORS[0]),
+                  border:'1px solid #d9d9d9'}}/>
+              </ColorPicker>
+            </div>
+          </div>
+
+          {onDelete && <div style={{marginTop:14}}>
+            <Popconfirm title="确定删除？" onConfirm={onDelete} okText="删除" cancelText="取消">
+              <Button danger icon={<DeleteOutlined/>} size="small">删除</Button>
+            </Popconfirm>
+          </div>}
+        </>
+      );
+    }
+
+    function exportAllData() {
+      const data = {
+        version: 1,
+        exportedAt: new Date().toISOString(),
+        events: loadAllEvents(),
+        notes: loadNotes(),
+        moods: loadMoods(),
+        settings: loadSettings(),
+        usage: loadUsage(),
+      };
+      const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      const d = new Date();
+      a.download = `schedule-backup-${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}.json`;
+      a.click();
+      URL.revokeObjectURL(url);
+      message.success('数据已导出');
+    }
+
+    function ImportModal({ onClose, onImported }) {
+      const [file, setFile] = useState(null);
+      const [preview, setPreview] = useState(null);
+      const [mergeMode, setMergeMode] = useState('smart');
+      const [importing, setImporting] = useState(false);
+      const [result, setResult] = useState(null);
+
+      const handleFileContent = (name, text) => {
+        setFile({ name });
+        try {
+          const data = JSON.parse(text);
+          if (!data.events) throw new Error('无效格式');
+          const now = loadAllEvents();
+          const existingIds = new Set(now.map(e => e.id));
+          const newEvents = data.events.filter(e => !existingIds.has(e.id));
+          const conflictEvents = data.events.filter(e => existingIds.has(e.id));
+          setPreview({
+            fileName: name,
+            eventsTotal: data.events.length, eventsNew: newEvents.length,
+            eventsConflict: conflictEvents.length,
+            hasNotes: !!data.notes, hasMoods: !!data.moods,
+            rawData: data,
+          });
+        } catch {
+          message.error('文件格式不正确');
+          setFile(null); setPreview(null);
+        }
+      };
+
+      const pickFile = async () => {
+        if (window.electronAPI) {
+          const r = await window.electronAPI.openFile([{ name: 'JSON', extensions: ['json'] }]);
+          if (r) handleFileContent(r.name, r.content);
+        } else {
+          // 浏览器兜底（仅开发模式）
+          const inp = document.createElement('input');
+          inp.type = 'file'; inp.accept = '.json';
+          inp.onchange = e => {
+            const f = e.target.files[0];
+            if (!f) return;
+            const reader = new FileReader();
+            reader.onload = ev => handleFileContent(f.name, ev.target.result);
+            reader.readAsText(f);
+          };
+          inp.click();
+        }
+      };
+
+      const doImport = () => {
+        setImporting(true);
+        const data = preview.rawData;
+        if (mergeMode === 'replace') {
+          saveAllEvents(data.events);
+          if (data.notes) localStorage.setItem(NOTES_KEY, JSON.stringify(data.notes));
+          if (data.moods) localStorage.setItem(MOOD_KEY, JSON.stringify(data.moods));
+          if (data.settings) localStorage.setItem(SETTINGS_KEY, JSON.stringify(data.settings));
+          if (data.usage) localStorage.setItem(USAGE_KEY, JSON.stringify(data.usage));
+          setResult({ added: data.events.length, updated: 0, skipped: 0, fullReplace: true });
+        } else {
+          const now = loadAllEvents();
+          const existingMap = {};
+          now.forEach(e => { existingMap[e.id] = e; });
+          let added = 0, updated = 0;
+          (data.events || []).forEach(e => {
+            if (!existingMap[e.id]) added++;
+            else if (new Date(e.createdAt) > new Date(existingMap[e.id].createdAt)) updated++;
+            existingMap[e.id] = e;
+          });
+          saveAllEvents(Object.values(existingMap));
+          if (data.notes) { const cn = loadNotes(); localStorage.setItem(NOTES_KEY, JSON.stringify({...cn, ...data.notes})); }
+          if (data.moods) { const cm = loadMoods(); localStorage.setItem(MOOD_KEY, JSON.stringify({...cm, ...data.moods})); }
+          if (data.settings) { const cs = loadSettings(); localStorage.setItem(SETTINGS_KEY, JSON.stringify({...cs, ...data.settings, customPresets:{...(cs.customPresets||{}), ...((data.settings.customPresets)||{})}})); }
+          if (data.usage) { const cu = loadUsage(); Object.entries(data.usage).forEach(([k,v])=>{cu[k]=Math.max(cu[k]||0,v)}); localStorage.setItem(USAGE_KEY, JSON.stringify(cu)); }
+          setResult({ added, updated, skipped: preview.eventsConflict - updated, fullReplace: false });
+        }
+        setImporting(false);
+      };
+
+      return React.createElement(Modal, { title: '导入数据', open: true, onCancel: onClose, width: 480,
+        footer: result
+          ? [React.createElement(Button, { key:'ok', type:'primary', onClick: ()=>{ onImported(); onClose(); } }, '完成')]
+          : [React.createElement(Button, { key:'cancel', onClick: onClose }, '取消'),
+             preview && React.createElement(Button, { key:'import', type:'primary', onClick: doImport, loading: importing, icon: React.createElement(UploadOutlined) }, '确认导入')]
+      },
+        !preview ? React.createElement('div', { style: {textAlign:'center',padding:'20px 0'} },
+          React.createElement('div', { style: {fontSize:13,color:'#666',marginBottom:12} }, '选择备份文件（.json）'),
+          React.createElement('div', { style:{marginBottom:16} },
+            React.createElement('div', { style:{fontSize:13,color:'#666',marginBottom:8} }, '选择备份文件（.json）'),
+            React.createElement(Button, { onClick: pickFile, icon: React.createElement(UploadOutlined) }, '选择文件...'),
+            file && React.createElement('span', { style:{marginLeft:12,fontSize:13,color:'#2c2c2c'} }, '✓ ' + file.name)
+          ),
+        ) : !result ? React.createElement(React.Fragment, null,
+          React.createElement('div', { style: {marginBottom:16,padding:'12px 14px',background:'#faf9f7',borderRadius:8} },
+            React.createElement('div', { style: {fontSize:14,fontWeight:600,color:'#2c2c2c',marginBottom:8} }, preview.fileName),
+            React.createElement('div', { style: {display:'grid',gridTemplateColumns:'1fr 1fr',gap:6,fontSize:12,color:'#666'} },
+              React.createElement('div', null, '日程总数：' + preview.eventsTotal),
+              React.createElement('div', null, '新增：' + preview.eventsNew),
+              React.createElement('div', null, '冲突（已存在）：' + preview.eventsConflict),
+              React.createElement('div', null, (preview.hasNotes ? '含周备注 ' : '') + (preview.hasMoods ? '含心情记录' : ''))
+            )
+          ),
+          preview.eventsConflict > 0 && React.createElement('div', { style: {marginBottom:14,padding:'10px 12px',background:'#fef8e7',borderRadius:6,border:'1px solid #f0d78e'} },
+            React.createElement(ExclamationCircleOutlined, { style: {color:'#d4a00e',marginRight:6} }),
+            React.createElement('span', { style: {fontSize:12,color:'#8a6d14'} }, '检测到 ' + preview.eventsConflict + ' 条冲突记录')
+          ),
+          React.createElement('div', { style: {marginBottom:14} },
+            React.createElement('label', { style: {display:'block',marginBottom:6,fontSize:12,color:'#888'} }, '合并策略'),
+            React.createElement(Select, {
+              value: mergeMode, onChange: setMergeMode, style: {width:'100%'}, size:'small',
+              options: [
+                {value:'smart', label:'智能合并（新记录加入，冲突保留较新版本）'},
+                {value:'replace', label:'完全替换（当前数据将被覆盖）'},
+              ]
+            })
+          )
+        ) : React.createElement('div', { style: {textAlign:'center',padding:'16px 0'} },
+          React.createElement('div', { style: {fontSize:40,marginBottom:8} }, '\u2713'),
+          React.createElement('div', { style: {fontSize:14,color:'#2c2c2c',marginBottom:4} }, '导入完成'),
+          React.createElement('div', { style: {fontSize:12,color:'#888'} },
+            result.fullReplace ? '已替换 ' + result.added + ' 条记录' : '新增 ' + result.added + ' 条、更新 ' + result.updated + ' 条、跳过 ' + result.skipped + ' 条'
+          )
+        )
+      );
+    }
+
+    // ==================== 月视图 ====================
+    function MonthView({ onBack, onSelectDate }) {
+      const [cm, setCM] = useState(() => dayjs().startOf('month').format('YYYY-MM'));
+      const [moods, setMoods] = useState({});
+      const [evts, setEvts] = useState([]);
+      const m = dayjs(cm + '-01');
+
+      useEffect(() => {
+        const s = m.subtract(1,'month').startOf('month').format('YYYY-MM-DD');
+        const e = m.add(1,'month').endOf('month').format('YYYY-MM-DD');
+        setEvts(fetchEvents(s, e));
+        setMoods(loadMoods());
+      }, [cm]);
+
+      function getWeeks(mk) {
+        const mo = dayjs(mk + '-01');
+        const md = mo.endOf('month');
+        // 找到包含本月第一天的那个周一
+        let wk = mo.subtract((mo.day() + 6) % 7, 'day');
+        const weeks = [];
+        // 包含所有与本月有重叠的周（>=1天在本月）
+        while (!wk.isAfter(md, 'day')) {
+          const we = wk.add(6, 'day');
+          const ds = [];
+          for (let i = 0; i < 7; i++) {
+            const d = wk.add(i, 'day');
+            ds.push({ date: d.format('YYYY-MM-DD'), day: d.format('D'), in: d.month() === mo.month() });
+          }
+          weeks.push({ s: wk.format('YYYY-MM-DD'), e: we.format('YYYY-MM-DD'), ds });
+          wk = wk.add(7, 'day');
+        }
+        return weeks;
+      }
+
+      function weekColor(week, center) {
+        const cols = week.ds.filter(d => d.date.substring(0,7)===center).map(d => moods[d.date]).filter(i => i != null && i >= 0).map(i => MOODS[i].color);
+        if (!cols.length) return null;
+        let r = 0, g = 0, b = 0;
+        cols.forEach(h => { r += parseInt(h.slice(1,3),16); g += parseInt(h.slice(3,5),16); b += parseInt(h.slice(5,7),16); });
+        return `rgb(${Math.round(r/cols.length)},${Math.round(g/cols.length)},${Math.round(b/cols.length)})`;
+      }
+
+      const nowWk = (wk) => { const n = dayjs(); return n.isAfter(wk.s) && n.isBefore(dayjs(wk.e).add(1,'day')); };
+      const ms = [m.subtract(1,'month').format('YYYY-MM'), cm, m.add(1,'month').format('YYYY-MM')];
+
+      const scrollRef = useRef(null);
+
+      const handleMonthWheel = useCallback((e) => {
+        const el = scrollRef.current;
+        if (!el) return;
+        const atTop = el.scrollTop < 10;
+        const atBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 10;
+        if (e.deltaY > 0 && atBottom) {
+          setCM(m.add(1,'month').format('YYYY-MM'));
+        } else if (e.deltaY < 0 && atTop) {
+          setCM(m.subtract(1,'month').format('YYYY-MM'));
+        }
+      }, [m]);
+
+      // 切月后新月份居中
+      useEffect(() => {
+        setTimeout(() => {
+          const el = document.getElementById('month-' + cm);
+          if (el) el.scrollIntoView({ block: 'center', behavior: 'smooth' });
+        }, 50);
+      }, [cm]);
+
+      return React.createElement('div', { style: {height:'100vh',display:'flex',flexDirection:'column',background:'#f8f8f6'} },
+        React.createElement('div', { style: {display:'flex',justifyContent:'space-between',alignItems:'center',padding:'10px 20px',background:'#fff',borderBottom:'1px solid #e8e8e8'} },
+          React.createElement('div', { style: {display:'flex',alignItems:'center',gap:12} },
+            React.createElement('h1', { style: {fontSize:18,fontWeight:600,color:'#2c2c2c',margin:0} }, '月视图'),
+            React.createElement(Button, { size:'small', onClick:onBack }, '← 周视图')
+          ),
+          React.createElement('div', { style: {display:'flex',alignItems:'center',gap:4} },
+            React.createElement(Button, { icon:React.createElement(LeftOutlined), onClick:() => setCM(m.subtract(1,'month').format('YYYY-MM')), type:'text' }),
+            React.createElement(Button, { type:'link', onClick:() => setCM(dayjs().format('YYYY-MM')), style:{fontWeight:500} }, m.format('YYYY年 M月')),
+            React.createElement(Button, { icon:React.createElement(RightOutlined), onClick:() => setCM(m.add(1,'month').format('YYYY-MM')), type:'text' })
+          )
+        ),
+        React.createElement('div', { ref: scrollRef, style: {flex:1,overflow:'auto',padding:'12px 20px 40px'},
+        onWheel: handleMonthWheel },
+          ms.map((mk, mi) => {
+            const isC = mk === cm;
+            const weeks = getWeeks(mk);
+            return React.createElement('div', { id:'month-'+mk, key:mk, style:{marginBottom:mi===1?40:0,opacity:isC?1:0.45,transition:'opacity 0.3s'} },
+              React.createElement('div', { style:{fontSize:15,fontWeight:600,color:'#2c2c2c',marginBottom:10,paddingLeft:4} }, dayjs(mk+'-01').format('YYYY年 M月')),
+              weeks.map((wk, wi) => {
+                const mc = weekColor(wk, cm);
+                const tw = nowWk(wk);
+                return React.createElement('div', {
+                  key: wk.s,
+                  onClick: () => { if (onSelectDate) { const im = wk.ds.find(d => d.in); if (im) onSelectDate(im.date); } },
+                  style: {
+                    border: '1px solid #e8e8e8',
+                    borderLeft: tw ? '4px solid #2c2c2c' : '1px solid #e8e8e8',
+                    borderBottom: wi===weeks.length-1?undefined:'none',
+                    borderTop: wi===0?'1px solid #e8e8e8':undefined,
+                    background: mc?`linear-gradient(135deg,${mc}22,${mc}0c)`:tw?'#fafaf9':'#fff',
+                    padding:'10px 14px',
+                    borderRadius: wi===0?'8px 8px 0 0':wi===weeks.length-1?'0 0 8px 8px':'0',
+                    display:'flex',alignItems:'center',gap:14,
+                    cursor:'pointer',transition:'all 0.2s',
+                    marginBottom:wi===weeks.length-1?'6px':'0',
+                  },
+                  onMouseEnter: e => e.currentTarget.style.background = mc?`linear-gradient(135deg,${mc}30,${mc}18)`:'#fafafa',
+                  onMouseLeave: e => e.currentTarget.style.background = mc?`linear-gradient(135deg,${mc}22,${mc}0c)`:tw?'#fafaf9':'#fff'
+                },
+                  React.createElement('div', { style:{display:'flex',gap:3,flex:1,alignItems:'center'} },
+                    wk.ds.map(d => {
+                      const inCenterMonth = d.date.substring(0,7) === cm;
+                      const mi2 = moods[d.date];
+                      const mo2 = mi2 != null && mi2 >= 0 ? MOODS[mi2] : null;
+                      return React.createElement('div', { key:d.date, style:{flex:1,textAlign:'center',opacity:inCenterMonth?1:d.in?1:0.3,padding:'4px 2px',borderRadius:4,background:mo2?mo2.color+'30':undefined} },
+                        React.createElement('div', { style:{fontSize:11,color:'#888',fontFamily:'monospace'} }, d.day),
+                        React.createElement('div', { style:{width:10,height:10,borderRadius:5,margin:'3px auto 0',background:mo2?mo2.color:'#f0f0f0',border:mo2?`1px solid ${mo2.color}`:'1px solid #e0e0e0'} })
+                      );
+                    })
+                  )
+                );
+              })
+            );
+          })
+        )
+      );
+    }
+
+
+    // ==================== 周视图 ====================
+    function WeekView({ onNav, onOpenSettings, onShowMonth, navToDate }) {
+      const [currentMonday, setCurrentMonday] = useState(() => {
+        const d = new Date(), day = d.getDay();
+        d.setDate(d.getDate() - day + (day===0?-6:1));
+        return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+      });
+
+      // 外部跳转（如从月视图点击某周）
+      useEffect(() => {
+        if (!navToDate) return;
+        const d = dayjs(navToDate);
+        const day = d.day();
+        const monday = day === 0 ? d.subtract(6,'day') : d.subtract(day - 1, 'day');
+        setCurrentMonday(monday.format('YYYY-MM-DD'));
+      }, [navToDate]);
+      const [events, setEvents] = useState([]);
+      const [modalOpen, setModalOpen] = useState(false);
+      const [addModalOpen, setAddModalOpen] = useState(false);
+      const [edit, setEdit] = useState({});
+      const [selDate, setSelDate] = useState('');
+      const [showNote, setShowNote] = useState(false);
+      const [weekNote, setWeekNote] = useState('');
+      const [moods, setMoods] = useState({});
+      const [moodOpen, setMoodOpen] = useState(null);
+
+      // 心情选择辅助函数
+      const selectMood = (date, idx) => { saveMood(date, idx); setMoods(prev => ({...prev, [date]:idx})); setMoodOpen(null); };
+      const clearMood = (date) => { saveMood(date, null); setMoods(prev => ({...prev, [date]:null})); setMoodOpen(null); };
+
+      const [importOpen, setImportOpen] = useState(false);
+      const [rowHeight, setRowHeight] = useState(30); // 缩放: 20~50
+
+      // 滚轮缩放总视图
+      const handleGridWheel = useCallback((e) => {
+        if (e.ctrlKey) {
+          e.preventDefault();
+          const step = e.deltaY < 0 ? 3 : -3;
+          setRowHeight(rh => Math.max(20, Math.min(50, rh + step)));
+        }
+        // 普通滚轮：正常滚动（不做任何处理，让overflow:auto接管）
+      }, []);
+
+      // 从设置面板触发导入
+      useEffect(() => {
+        const handler = () => setImportOpen(true);
+        document.addEventListener('trigger-import', handler);
+        return () => document.removeEventListener('trigger-import', handler);
+      }, []);
+
+      const weekDays = useMemo(() => {
+        const [y,m,d] = currentMonday.split('-').map(Number);
+        const mon = new Date(y,m-1,d);
+        const names = ['周一','周二','周三','周四','周五','周六','周日'];
+        return names.map((l,i) => {
+          const dt = new Date(mon); dt.setDate(mon.getDate()+i);
+          return { label:l, date:`${dt.getFullYear()}-${String(dt.getMonth()+1).padStart(2,'0')}-${String(dt.getDate()).padStart(2,'0')}`, md:`${dt.getMonth()+1}/${dt.getDate()}` };
+        });
+      }, [currentMonday]);
+      const weekStart = weekDays[0].date;
+      const weekEnd = weekDays[6].date;
+
+      useEffect(() => { setEvents(fetchEvents(weekStart, weekEnd)); setWeekNote(getNote(currentMonday)); setMoods(loadMoods()); }, [weekStart, weekEnd]);
+      const reload = () => setEvents(fetchEvents(weekStart, weekEnd));
+
+      const prevWeek = () => setCurrentMonday(dayjs(currentMonday).subtract(7,'day').format('YYYY-MM-DD'));
+      const nextWeek = () => setCurrentMonday(dayjs(currentMonday).add(7,'day').format('YYYY-MM-DD'));
+      const thisWeek = () => {
+        const d = new Date(), day = d.getDay();
+        d.setDate(d.getDate()-day+(day===0?-6:1));
+        setCurrentMonday(dayjs(d).format('YYYY-MM-DD'));
+      };
+
+      // 点击网格
+      const handleCell = (date, hour) => {
+        setSelDate(date);
+        setEdit({ startTime: `${String(hour).padStart(2,'0')}:00` });
+        setModalOpen(true);
+      };
+      const handleEvent = (evt) => { setSelDate(evt.date); setEdit({...evt}); setModalOpen(true); };
+
+      // 手动添加
+      const findLatestEnd = (date) => {
+        // 每次都从存储读，避免 React state 滞后
+        const fresh = loadAllEvents().filter(e => e.date === date).map(e => ({
+          s: timeToMin(e.startTime),
+          e: e.endTime ? timeToMin(e.endTime) : timeToMin(e.startTime) + 60,
+        })).sort((a,b) => b.e - a.e);
+
+        if (fresh.length === 0) {
+          // 无事件：今天=现在；未来=6:00
+          const now = new Date();
+          const m = now.getHours() * 60 + now.getMinutes();
+          return minToTime(date === todayStr() ? Math.max(360, m) : 360);
+        }
+
+        // 有事件：永远取最后事件的结束时间（不与现在取 max）
+        return minToTime(fresh[0].e);
+      };
+
+      const openManualAdd = () => {
+        const t = todayStr();
+        setSelDate(t);
+        setEdit({ startTime: findLatestEnd(t) });
+        setAddModalOpen(true);
+      };
+
+      const saveFromForm = () => {
+        if (!edit.description?.trim()) return message.warning('请输入内容');
+        if (!edit.startTime) return message.warning('请选择开始时间');
+        const cats = (edit.categories && edit.categories.length) ? edit.categories : [edit.description.trim()];
+        const cat = cats[0]; // 第一个分类为主
+        const evt = {
+          id: edit.id || generateId(),
+          date: selDate || edit.date,
+          startTime: edit.startTime,
+          endTime: edit.endTime || null,
+          description: edit.description.trim(),
+          category: cat,
+          categories: cats,
+          color: edit.color || getColorForCategory(cat),
+          status: edit.status || 'completed',
+          createdAt: edit.createdAt || new Date().toISOString()
+        };
+        saveEvent(evt);
+        incrementUsage(evt.description);
+        setModalOpen(false); setAddModalOpen(false); setEdit({}); reload();
+      };
+
+      const handleDelete = () => {
+        if (edit.id) { deleteEvent(edit.id); setModalOpen(false); setEdit({}); reload(); }
+      };
+
+      const handleNoteSave = () => { saveNote(currentMonday, weekNote); message.success('备注已保存'); };
+      const usedCats = [...new Set(events.map(e=>e.category).filter(Boolean))];
+      const HOURS = Array.from({length:24},(_,i)=>(i+6)%24);
+      const timeLabels = HOURS.map(h => `${String(h).padStart(2,'0')}:00`);
+
+      return (
+        <div style={{height:'100vh',display:'flex',flexDirection:'column',background:'#f8f8f6'}}>
+          {/* 顶栏 */}
+          <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',padding:'10px 20px',background:'#fff',borderBottom:'1px solid #e8e8e8'}}>
+            <div style={{display:'flex',alignItems:'center',gap:6}}>
+              <Button size="small" type="text" onClick={onShowMonth} style={{fontWeight:600,fontSize:13}}>月</Button>
+              <Button size="small" type="text" style={{fontWeight:600,fontSize:13,color:'#2c2c2c'}}>周</Button>
+              <span style={{width:1,height:16,background:'#e0e0e0',margin:'0 4px'}}/>
+              <Tooltip title={showNote?'收起备注':'展开备注'}>
+                <Button size="small" type={showNote?'primary':'default'} icon={<EditOutlined/>}
+                  onClick={() => setShowNote(!showNote)}/>
+              </Tooltip>
+              <Tooltip title="弹窗设置">
+                <Button size="small" icon={<SettingOutlined/>}
+                  onClick={() => onOpenSettings()}/>
+              </Tooltip>
+            </div>
+            <div style={{display:'flex',alignItems:'center',gap:4}}>
+              <Button icon={<LeftOutlined/>} onClick={prevWeek} type="text"/>
+              <Button type="link" onClick={thisWeek} style={{fontWeight:500}}>{currentMonday} 周</Button>
+              <Button icon={<RightOutlined/>} onClick={nextWeek} type="text"/>
+              <span style={{fontSize:10,color:'#bbb',marginLeft:8}}>Ctrl+滚轮缩放 {Math.round(rowHeight/30*100)}%</span>
+            </div>
+          </div>
+
+          {/* 周备注 */}
+          {showNote && (
+            <div style={{padding:'10px 20px',background:'#fff',borderBottom:'1px solid #eee'}}>
+              <Input.TextArea
+                value={weekNote}
+                onChange={e => setWeekNote(e.target.value)}
+                placeholder="本周备注..."
+                autoSize={{minRows:2,maxRows:4}}
+                style={{fontSize:13,color:'#555'}}
+              />
+              <div style={{display:'flex',justifyContent:'flex-end',marginTop:6}}>
+                <Button size="small" onClick={handleNoteSave}>保存备注</Button>
+              </div>
+            </div>
+          )}
+
+          {/* 图例 */}
+          {usedCats.length > 0 && (
+            <div style={{display:'flex',gap:16,padding:'6px 20px',background:'#fff',borderBottom:'1px solid #eee',flexWrap:'wrap'}}>
+              {usedCats.map(cat => {
+                const col = events.find(e=>e.category===cat)?.color || getColorForCategory(cat);
+                return <span key={cat} style={{fontSize:12,color:'#666',display:'flex',alignItems:'center',gap:5}}>
+                  <span style={{width:10,height:10,borderRadius:3,background:col,display:'inline-block'}}/>{cat}
+                </span>;
+              })}
+            </div>
+          )}
+
+          {/* 表格 */}
+          <div style={{flex:1,display:'flex',flexDirection:'column',overflow:'hidden'}}>
+            <div style={{display:'flex',borderBottom:'1px solid #e8e8e8',background:'#fff'}}>
+              <div style={{width:56,flexShrink:0}}/>
+              {weekDays.map(d => {
+                const moodIdx = moods[d.date];
+                const mood = moodIdx != null && moodIdx >= 0 ? MOODS[moodIdx] : null;
+                const isOpen = moodOpen === d.date;
+                return (
+                <div key={d.date} style={{flex:1,textAlign:'center',padding:'6px 4px',borderLeft:'1px solid #f0f0f0',position:'relative'}}>
+                  <div style={{fontSize:13,color:'#777'}}>{d.label}</div>
+                  <div style={{fontSize:11,color:'#aaa',marginTop:1}}>{d.md}</div>
+                  {/* 心情点 + 弹窗 */}
+                  <div onClick={() => setMoodOpen(isOpen ? null : d.date)} style={{
+                    width:18, height:18, borderRadius:9, margin:'3px auto 0',
+                    background: mood ? `linear-gradient(135deg, ${mood.color}, ${mood.color}dd)` : '#eee',
+                    border: mood ? `1.5px solid ${mood.color}` : '1.5px solid #ddd',
+                    cursor:'pointer', transition:'all 0.2s',
+                  }} title={mood ? mood.label : '点此切换心情'}/>
+                  {isOpen && <><div onClick={() => setMoodOpen(null)} style={{position:'fixed',top:0,left:0,right:0,bottom:0,zIndex:49}}/>
+                    <div style={{
+                      position:'absolute', top:'100%', left:'50%', transform:'translateX(-50%)',
+                      background:'#fff', borderRadius:8, padding:6,
+                      boxShadow:'0 4px 20px rgba(0,0,0,0.15)', zIndex:50,
+                      display:'flex', flexDirection:'column', alignItems:'center', gap:4, marginTop:4,
+                    }} onClick={e => e.stopPropagation()}>
+                      <div onClick={() => clearMood(d.date)} style={{
+                        padding:'2px 10px', fontSize:10, color:'#aaa', cursor:'pointer',
+                        textAlign:'center', borderRadius:3,
+                      }} onMouseEnter={e => e.target.style.background="#eee"} onMouseLeave={e => e.target.style.background="transparent"}>清除</div>
+                      <div style={{width:1,height:1,background:'#eee',margin:'2px 0'}}/>
+                      {MOODS.map(function(m, i) {
+                        return <div key={i} onClick={() => selectMood(d.date, i)} style={{
+                          width:22, height:22, cursor:'pointer', borderRadius:11, background:m.color,
+                          boxShadow: moodIdx===i ? `0 0 0 2px ${m.color}, 0 0 0 4px #fff` : 'none',
+                        }} onMouseEnter={e => e.target.style.opacity="0.7"} onMouseLeave={e => e.target.style.opacity="1"} title={m.label}/>;
+                      })}
+                    </div>
+                  </>}
+                </div>
+                );
+              })}
+            </div>
+            <div style={{flex:1,display:'flex',overflow:'auto'}} onWheel={handleGridWheel}>
+              <div style={{width:56,flexShrink:0,background:'#fff',borderRight:'1px solid #f0f0f0',minHeight:48*rowHeight}}>
+                {timeLabels.map(t => <div key={t} style={{height:rowHeight*2,display:'flex',alignItems:'flex-start',justifyContent:'center',fontSize:11,color:'#bbb',paddingTop:2}}>{t}</div>)}
+              </div>
+              {weekDays.map(d => (
+                <div key={d.date} style={{flex:1,position:'relative',borderLeft:'1px solid #f0f0f0',background:'#fff',minHeight:48*rowHeight}}>
+                  {Array.from({length:48},(_,i) => (
+                    <div key={i} style={{
+                      height:rowHeight, cursor:'pointer',
+                      borderBottom: i===36?'1px solid #ddd':'1px solid #f0f0f0',
+                    }}
+                      onClick={()=>handleCell(d.date,(6+Math.floor(i/2))%24)}/>
+                  ))}
+                  {events.filter(e=>e.date===d.date).map(evt => {
+                    const bg = evt.color || getColorForCategory(evt.category||'');
+                    const sm = timeToMin(evt.startTime), em = evt.endTime ? timeToMin(evt.endTime) : sm+30;
+                    const adj = m => (m - 360 + 1440) % 1440; // 以6:00为起点偏移
+                    const top = (adj(sm)/1440)*100, h = Math.max(((em-sm)/1440)*100, 1.2);
+                    return (
+                      <div key={evt.id}
+                        style={{position:'absolute',left:1,right:1,top:`${top}%`,height:`${h}%`,borderRadius:4,padding:'2px 5px',fontSize:11,cursor:'pointer',overflow:'hidden',zIndex:2,
+                          background:evt.status==='in_progress'?`repeating-linear-gradient(135deg,${bg}88 0px,${bg}88 4px,${bg}44 4px,${bg}44 8px)`:bg,
+                          color:textColor(bg),borderLeft:`3px solid ${bg}`}}
+                        onClick={e=>{e.stopPropagation();handleEvent(evt);}}
+                        title={`${evt.startTime}${evt.endTime?'-'+evt.endTime:' 进行中'} ${evt.description}`}>
+                        <div style={{fontSize:10,opacity:0.7,lineHeight:1.2}}>{evt.startTime}{evt.endTime?'-'+evt.endTime:''}</div>
+                        <div style={{lineHeight:1.3,whiteSpace:'nowrap',overflow:'hidden',textOverflow:'ellipsis',fontWeight:500}}>{evt.description}</div>
+                      </div>
+                    );
+                  })}
+                </div>
+              ))}
+            </div>
+          </div>
+
+          {/* 手动添加浮动按钮 */}
+          <Tooltip title="手动添加日程">
+            <Button type="primary" shape="circle" size="large" icon={<PlusOutlined/>}
+              onClick={openManualAdd}
+              style={{position:'fixed',bottom:32,right:32,width:52,height:52,boxShadow:'0 4px 14px rgba(0,0,0,0.15)',zIndex:100}}/>
+          </Tooltip>
+
+          {/* 网格点击编辑弹窗 */}
+          <Modal title={edit.id?'编辑日程':'添加日程'} open={modalOpen} onOk={saveFromForm}
+            onCancel={()=>{setModalOpen(false);setEdit({});}} okText="保存" cancelText="取消" width={440}
+            footer={[
+              <Button key="c" onClick={()=>{setModalOpen(false);setEdit({});}}>取消</Button>,
+              <Button key="s" type="primary" onClick={saveFromForm}>保存</Button>
+            ]}>
+            <EventForm edit={edit} setEdit={setEdit} selDate={selDate} setSelDate={setSelDate}
+              onSave={saveFromForm} onDelete={edit.id?handleDelete:null} isFull={false}/>
+          </Modal>
+
+          {/* 手动添加弹窗（完整表单） */}
+          <Modal title="手动添加日程" open={addModalOpen} onCancel={()=>{setAddModalOpen(false);setEdit({});}}
+            footer={[
+              <Button key="c" onClick={()=>{setAddModalOpen(false);setEdit({});}}>取消</Button>,
+              <Button key="s" type="primary" onClick={saveFromForm}>添加</Button>
+            ]} width={440}>
+            <EventForm edit={edit} setEdit={setEdit} selDate={selDate} setSelDate={setSelDate}
+              onSave={saveFromForm} isFull={true}/>
+          </Modal>
+          {importOpen && <ImportModal onClose={() => setImportOpen(false)} onImported={reload}/>}
+        </div>
+      );
+    }
+
+    // ==================== 设置弹窗 ====================
+    function SettingsModal({ settings, onSave, onClose, onTestPopup }) {
+      const [local, setLocal] = useState({ ...settings });
+      const [now, setNow] = useState(new Date());
+
+      useEffect(() => {
+        const t = setInterval(() => setNow(new Date()), 30000);
+        return () => clearInterval(t);
+      }, []);
+
+      const [autoStart, setAutoStart] = useState(false);
+      useEffect(() => {
+        if (window.electronAPI) {
+          window.electronAPI.getAutostart().then(setAutoStart);
+        }
+      }, []);
+
+      const handleAutoStart = async (v) => {
+        setAutoStart(v);
+        if (window.electronAPI) {
+          await window.electronAPI.setAutostart(v);
+          message.success(v ? '已添加开机自启' : '已取消开机自启');
+        }
+      };
+
+      const update = (patch) => setLocal({ ...local, ...patch });
+
+      // 计算下次弹窗时间
+      const getNextPopup = () => {
+        const hours = [...local.triggerHours].sort((a,b)=>a-b);
+        const cur = now.getHours() * 60 + now.getMinutes();
+        for (const h of hours) {
+          const t = h * 60;
+          if (t > cur) return t;
+        }
+        // 明天的第一个
+        return (24 * 60) + (hours[0] * 60);
+      };
+
+      const nextPopupMin = getNextPopup();
+      const nextHour = Math.floor((nextPopupMin % 1440) / 60);
+      const minutesUntil = nextPopupMin - (now.getHours() * 60 + now.getMinutes());
+
+      // 时段切换
+      const toggleHour = (h) => {
+        const has = local.triggerHours.includes(h);
+        const next = has ? local.triggerHours.filter(x=>x!==h) : [...local.triggerHours, h].sort((a,b)=>a-b);
+        update({ triggerHours: next });
+      };
+
+      // 自定义预设
+      const [newPresetText, setNewPresetText] = useState('');
+      const [newPresetCat, setNewPresetCat] = useState('工作');
+      const [newPresetHour, setNewPresetHour] = useState(10);
+
+      const addPreset = () => {
+        if (!newPresetText.trim()) return;
+        const map = { ...local.customPresets };
+        if (!map[newPresetHour]) map[newPresetHour] = [];
+        map[newPresetHour] = [...map[newPresetHour], { t: newPresetText.trim(), c: newPresetCat }];
+        update({ customPresets: map });
+        setNewPresetText('');
+      };
+
+      const removePreset = (hour, idx) => {
+        const map = { ...local.customPresets };
+        map[hour] = map[hour].filter((_,i)=>i!==idx);
+        if (map[hour].length === 0) delete map[hour];
+        update({ customPresets: map });
+      };
+
+      const HOURS_24 = Array.from({length:24},(_,i)=>i);
+
+      return (
+        <Modal title="弹窗设置" open onCancel={onClose}
+          footer={[
+            <Button key="test" onClick={() => { onTestPopup(nextHour); onClose(); }}>测试弹出（{nextHour}:00）</Button>,
+            <Button key="c" onClick={onClose}>取消</Button>,
+            <Button key="s" type="primary" onClick={() => { onSave(local); onClose(); }}>保存</Button>,
+          ]} width={520}>
+          {/* 下次弹出 */}
+          <div style={{
+            padding:'12px 14px', marginBottom:16,
+            background:'linear-gradient(135deg, #f5f3ef, #ece9e3)',
+            borderRadius:8,
+            display:'flex', alignItems:'center', gap:14,
+          }}>
+            <BellOutlined style={{fontSize:22,color:'#888'}}/>
+            <div>
+              <div style={{fontSize:12,color:'#888'}}>下次自动弹出</div>
+              <div style={{fontSize:20,fontWeight:600,color:'#2c2c2c',fontFamily:'monospace'}}>
+                {nextHour}:00
+                <span style={{fontSize:12,color:'#888',fontWeight:400,marginLeft:8}}>
+                  ({minutesUntil >= 60 ? `${Math.floor(minutesUntil/60)}小时` : ''}{minutesUntil%60 > 0 ? `${minutesUntil%60}分后` : ''})
+                </span>
+              </div>
+            </div>
+          </div>
+
+          {/* 触发小时 */}
+          <div style={{marginBottom:18}}>
+            <label style={{display:'block',marginBottom:8,fontSize:13,fontWeight:500,color:'#2c2c2c'}}>触发时间（点击切换）</label>
+            <div style={{display:'flex',flexWrap:'wrap',gap:6}}>
+              {HOURS_24.map(h => {
+                const active = local.triggerHours.includes(h);
+                return (
+                  <div key={h} onClick={() => toggleHour(h)} style={{
+                    width:38, padding:'6px 0', textAlign:'center', cursor:'pointer',
+                    fontSize:12, fontFamily:'monospace',
+                    borderRadius:4,
+                    border:'1px solid ' + (active ? '#2c2c2c' : '#e0e0e0'),
+                    background: active ? '#2c2c2c' : '#fafafa',
+                    color: active ? '#fff' : '#666',
+                    userSelect:'none',
+                  }}>{String(h).padStart(2,'0')}</div>
+                );
+              })}
+            </div>
+          </div>
+
+          {/* 覆盖范围 */}
+          <div style={{marginBottom:18}}>
+            <label style={{display:'block',marginBottom:8,fontSize:13,fontWeight:500,color:'#2c2c2c'}}>覆盖范围（每次弹窗记录过去几小时）</label>
+            <div style={{display:'flex',alignItems:'center',gap:12}}>
+              <input type="range" min={1} max={4} step={1} value={local.rangeHours}
+                onChange={e => update({ rangeHours: parseInt(e.target.value) })}
+                style={{flex:1, accentColor:'#2c2c2c'}}/>
+              <span style={{minWidth:50,textAlign:'right',fontSize:14,fontWeight:500,color:'#2c2c2c'}}>{local.rangeHours} 小时</span>
+            </div>
+          </div>
+
+          {/* 自定义预设 */}
+          <div style={{marginBottom:14}}>
+            <label style={{display:'block',marginBottom:8,fontSize:13,fontWeight:500,color:'#2c2c2c'}}>自定义常用项</label>
+            <div style={{display:'flex',gap:8,marginBottom:8}}>
+              <Input placeholder="事项名称" value={newPresetText} onChange={e => setNewPresetText(e.target.value)} style={{flex:2}} size="small"/>
+              <Select value={newPresetCat} onChange={setNewPresetCat} size="small" style={{flex:1}}
+                options={CATEGORIES.map(c => ({value:c}))}/>
+              <Select value={newPresetHour} onChange={setNewPresetHour} size="small" style={{flex:1}}
+                options={HOURS_24.map(h => ({value:h, label: `${h}:00`}))}/>
+              <Button size="small" type="primary" onClick={addPreset}>添加</Button>
+            </div>
+            <div style={{maxHeight:160,overflow:'auto'}}>
+              {Object.entries(local.customPresets).sort((a,b)=>a[0]-b[0]).map(([hour, items]) => (
+                <div key={hour} style={{marginBottom:6}}>
+                  <div style={{fontSize:11,color:'#888',marginBottom:4}}>{hour}:00 时段</div>
+                  <div style={{display:'flex',flexWrap:'wrap',gap:4}}>
+                    {items.map((it, i) => (
+                      <Tag key={i} style={{
+                        fontSize:11, padding:'1px 6px', margin:0,
+                        background: getColorForCategory(it.c) + '20',
+                        borderColor: getColorForCategory(it.c),
+                        color:'#444',
+                      }} closable onClose={() => removePreset(parseInt(hour), i)}>
+                        <span style={{display:'inline-block',width:6,height:6,borderRadius:2,background:getColorForCategory(it.c),marginRight:4,verticalAlign:'middle'}}/>
+                        {it.t}
+                      </Tag>
+                    ))}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          {/* 系统集成 */}
+          <div style={{marginTop:16,paddingTop:14,borderTop:'1px solid #eee'}}>
+            <label style={{display:'block',marginBottom:6,fontSize:13,fontWeight:500,color:'#2c2c2c'}}>系统集成</label>
+            <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',padding:'8px 12px',background:'#faf9f7',borderRadius:6}}>
+              <span style={{fontSize:13,color:'#444'}}>开机自动启动</span>
+              <Switch checked={autoStart} onChange={handleAutoStart} size="small"/>
+            </div>
+          </div>
+
+          {/* 数据导入导出 */}
+          <div style={{marginTop:16,paddingTop:14,borderTop:'1px solid #eee'}}>
+            <label style={{display:'block',marginBottom:6,fontSize:13,fontWeight:500,color:'#2c2c2c'}}>数据管理</label>
+            <div style={{display:'flex',gap:8}}>
+              <Button size="small" icon={<DownloadOutlined/>} onClick={() => { exportAllData(); onClose(); }}>导出备份</Button>
+              <Button size="small" icon={<UploadOutlined/>} onClick={() => { onClose(); setTimeout(() => document.dispatchEvent(new Event('trigger-import')), 100); }}>导入备份</Button>
+            </div>
+          </div>
+        </Modal>
+      );
+    }
+
+    // ==================== 快捷弹窗 ====================
+    function PopupForm({ defaultHour, onClose, settings, sessionStart }) {
+      // 会话跨度：首次弹出的小时 ~ 当前触发小时（支持累积）
+      const baseHour = sessionStart != null ? sessionStart : defaultHour;
+      const rangeHours = settings?.rangeHours || 2;
+      const rs = Math.max(0, baseHour - rangeHours) * 60;
+      const re = defaultHour * 60;
+      const [startMin,setStartMin] = useState(rs);
+      const [endMin,setEndMin] = useState(re);
+      const [desc,setDesc] = useState('');
+      const [segs,setSegs] = useState([]);
+      const [saving,setSaving] = useState(false);
+      const [pCat,setPCat] = useState([]);
+      const inputRef = useRef(null);
+
+      useEffect(()=>{
+        const td = todayStr();
+        const existing = loadAllEvents().filter(e=>e.date===td).filter(e=>{const sm=timeToMin(e.startTime);return sm>=rs&&sm<re;}).map(e=>({id:e.id,startMin:timeToMin(e.startTime),endMin:e.endTime?timeToMin(e.endTime):re,description:e.description,category:e.category||'',color:e.color||getColorForCategory(e.category||''),status:e.status})).sort((a,b)=>a.startMin-b.startMin);
+        if(existing.length>0){setSegs(existing);const last=existing[existing.length-1];if(last.status==='completed')setStartMin(Math.min(last.endMin,re));}
+      },[]);
+      useEffect(()=>{inputRef.current?.focus();},[]);
+
+      // Electron 累积弹窗：监听主进程发来的扩展事件
+      useEffect(() => {
+        if (window.electronAPI) {
+          window.electronAPI.onPopupExtend((hour) => {
+            setEndMin(hour * 60);
+          });
+        }
+      }, []);
+
+      const presets = getPresets(defaultHour, settings?.customPresets);
+
+      const handlePreset=(item)=>{setDesc(item.t);setPCat([item.c]);inputRef.current?.focus();incrementUsage(item.t);};
+      const handleAdd=async()=>{
+        if(!desc.trim())return message.warning('请输入做了什么');
+        if(startMin>=endMin)return message.warning('结束时间必须晚于开始时间');
+        setSaving(true);
+        const cats=(pCat && pCat.length) ? pCat : [desc.trim()];
+        const cat=cats[0],col=getColorForCategory(cat);
+        const ns={id:generateId(),startMin,endMin,description:desc.trim(),category:cat,categories:cats,color:col,status:'completed'};
+        saveEvent({id:ns.id,date:todayStr(),startTime:minToTime(startMin),endTime:minToTime(endMin),description:ns.description,category:ns.category,categories:cats,color:ns.color,status:'completed',createdAt:new Date().toISOString()});
+        incrementUsage(desc.trim());
+        setSegs([...segs,ns].sort((a,b)=>a.startMin-b.startMin));
+        setStartMin(endMin);setEndMin(re);setDesc('');setPCat([]);setSaving(false);inputRef.current?.focus();
+      };
+      const handleProgress=async()=>{
+        if(!desc.trim())return message.warning('请输入内容');
+        const cats=(pCat && pCat.length) ? pCat : [desc.trim()];
+        const cat=cats[0],col=getColorForCategory(cat);
+        const ns={id:generateId(),startMin,endMin:re,description:desc.trim(),category:cat,categories:cats,color:col,status:'in_progress'};
+        saveEvent({id:ns.id,date:todayStr(),startTime:minToTime(startMin),endTime:null,description:ns.description,category:ns.category,categories:cats,color:ns.color,status:'in_progress',createdAt:new Date().toISOString()});
+        incrementUsage(desc.trim());
+        setSegs([...segs,ns].sort((a,b)=>a.startMin-b.startMin));
+        setDesc('');setPCat([]);setStartMin(re);message.success('已标记为进行中');
+      };
+      const handleRemove=(id)=>{deleteEvent(id);setSegs(segs.filter(s=>s.id!==id));};
+      const handleKeyDown=(e)=>{if(e.key==='Enter'&&!e.shiftKey){e.preventDefault();handleAdd();}};
+      const allDone=startMin>=re;
+
+      return (
+        <div style={{padding:'12px 16px',height:'100%',display:'flex',flexDirection:'column',background:'#fff',overflow:'hidden'}}>
+          <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:14}}>
+            <div style={{fontSize:13,color:'#888',display:'flex',alignItems:'center'}}><ClockCircleOutlined style={{marginRight:6,color:'#aaa'}}/>{minToTime(rs)} - {minToTime(re)}<span style={{marginLeft:8,fontSize:11,color:'#bbb'}}>({settings?.rangeHours||2}小时)</span></div>
+            <Button type="text" size="small" icon={<CloseOutlined/>} onClick={onClose}/>
+          </div>
+          <div style={{marginBottom:14}}>
+            <TimeBar
+              startMin={startMin}
+              endMin={endMin}
+              totalMin={re-rs}
+              onChangeStart={setStartMin}
+              onChangeEnd={setEndMin}
+              colorBar={pCat.length ? getColorForCategory(pCat[0]) : '#2c2c2c'}
+              segments={segs}
+              baseMin={rs}
+              showScale={false}
+            />
+          </div>
+          <div style={{marginBottom:12}}>
+            <div style={{fontSize:11,color:'#bbb',marginBottom:6}}>常用</div>
+            <div style={{display:'flex',flexWrap:'wrap',gap:6}}>
+              {presets.map(item=>{const c=getColorForCategory(item.c);return <Tag key={item.t} style={{cursor:'pointer',fontSize:12,borderRadius:4,padding:'1px 8px',background:'#fafafa',color:'#555',margin:0,borderColor:c,borderWidth:1.5}} onClick={()=>handlePreset(item)}><span style={{display:'inline-block',width:8,height:8,borderRadius:2,background:c,marginRight:4,verticalAlign:'middle'}}/>{item.t}</Tag>;})}
+            </div>
+          </div>
+          {!allDone && (<div style={{marginBottom:12}}>
+            {pCat.length>0 && <div style={{display:'flex',flexWrap:'wrap',gap:4,marginBottom:6}}>
+                {pCat.map((c,i) => (
+                  <Tag key={i} closable onClose={() => setPCat(pCat.filter((_,j)=>j!==i))} style={{
+                    fontSize:11, padding:'1px 6px', margin:0,
+                    background: getColorForCategory(c) + '25',
+                    borderColor: getColorForCategory(c),
+                    color:'#444',
+                  }}>
+                    <span style={{display:'inline-block',width:6,height:6,borderRadius:2,background:getColorForCategory(c),marginRight:4,verticalAlign:'middle'}}/>
+                    {c}
+                  </Tag>
+                ))}
+              </div>}
+            <Input ref={inputRef} value={desc} onChange={e=>setDesc(e.target.value)} onKeyDown={handleKeyDown} placeholder={`${minToTime(startMin)}-${minToTime(endMin)} 做了什么…`} style={{marginBottom:8,borderRadius:6}} size="small" prefix={pCat.length?<span style={{width:10,height:10,borderRadius:2,display:'inline-block',background:getColorForCategory(pCat[0]),marginRight:4}}/>:undefined}/>
+            <div style={{display:'flex',gap:8,alignItems:'center'}}>
+              <Button size="small" onClick={handleAdd} loading={saving} icon={<PlusOutlined/>}>添加这一段</Button>
+              <Button size="small" type="dashed" onClick={handleProgress}>进行中</Button>
+              <div style={{flex:1}}/>
+              <Dropdown menu={{items: CATEGORIES.filter(c => !pCat.includes(c)).map(c => ({
+                key: c, label: <span><span style={{display:'inline-block',width:8,height:8,borderRadius:2,background:getColorForCategory(c),marginRight:6,verticalAlign:'middle'}}/>{c}</span>,
+                onClick: () => setPCat([...pCat, c]),
+              }))}} trigger={['click']}>
+                <Button size="small" type="text" icon={<PlusOutlined style={{fontSize:10}}/>}>分类</Button>
+              </Dropdown>
+            </div>
+          </div>)}
+          {allDone&&!segs.length&&<div style={{textAlign:'center',color:'#bbb',fontSize:13,padding:'20px 0'}}>本时段已全部记录</div>}
+          {segs.length>0&&(<div style={{flex:1,overflow:'auto',borderTop:'1px solid #f2f2f2',paddingTop:10}}>
+            <div style={{fontSize:11,color:'#bbb',marginBottom:6}}>已记录</div>
+            {segs.map(seg=>(<div key={seg.id} style={{display:'flex',alignItems:'center',padding:'6px 0',borderBottom:'1px solid #fafafa',gap:8}}>
+              <span style={{width:4,height:16,borderRadius:2,flexShrink:0,background:seg.color}}/>
+              <span style={{fontSize:11,color:'#aaa',fontFamily:'monospace',minWidth:80,flexShrink:0}}>{minToTime(seg.startMin)} - {seg.status==='in_progress'?'进行中':minToTime(seg.endMin)}</span>
+              <span style={{fontSize:13,color:'#2c2c2c',flex:1,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{seg.description}</span>
+              <Button type="text" size="small" danger style={{minWidth:20,padding:0}} onClick={()=>handleRemove(seg.id)}><CloseOutlined style={{fontSize:10}}/></Button>
+            </div>))}
+          </div>)}
+          {segs.length>0&&(<div style={{marginTop:12,paddingTop:12,borderTop:'1px solid #f2f2f2'}}>
+            <div style={{display:'flex',gap:8}}>
+              <Button type="primary" size="small" onClick={onClose} style={{flex:1}}>完成</Button>
+              <Button size="small" onClick={onClose}>等会儿记录</Button>
+            </div>
+          </div>)}
+        </div>
+      );
+    }
+
+    // ==================== 主路由 ====================
+    function App() {
+      const [view, setView] = useState('week');
+      const viewRef = useRef(view);
+      viewRef.current = view;
+      const [popupHour, setPopupHour] = useState(10);
+      const [popupSessionStart, setPopupSessionStart] = useState(null);
+      const [settings, setSettings] = useState(loadSettings);
+      const [settingsOpen, setSettingsOpen] = useState(false);
+
+            // 触发弹窗：如果已开着就累积时段
+      const triggerPopup = useCallback((hour) => {
+        if (viewRef.current === 'popup') {
+          setPopupHour(hour);
+        } else {
+          setView('popup');
+          setPopupHour(hour);
+          setPopupSessionStart(hour);
+        }
+      }, []);
+
+      useEffect(()=>{
+        const checkHash = () => {
+          const h = window.location.hash;
+          const m = h.match(/popup\?hour=(\d+)/);
+          if(m){ triggerPopup(parseInt(m[1])); }
+        };
+        checkHash();
+        window.addEventListener('hashchange', checkHash);
+        return ()=>window.removeEventListener('hashchange', checkHash);
+      }, []);
+
+            useEffect(()=>{
+        const onKey = (e) => { if(e.ctrlKey&&e.key==='p'){ e.preventDefault(); triggerPopup(new Date().getHours()); }};
+        window.addEventListener('keydown',onKey);
+        return ()=>window.removeEventListener('keydown',onKey);
+      }, []);
+
+      const goWeek = () => { setView('week'); setPopupSessionStart(null); };
+      const goMonth = () => setView('month');
+      const [navToDate, setNavToDate] = useState(null);
+      const handleMonthSelect = (date) => { setNavToDate(date); setView('week'); };
+      const openSettings = () => setSettingsOpen(true);
+      const handleSaveSettings = (s) => { setSettings(s); saveSettings(s); message.success('设置已保存'); };
+      const handleTestPopup = (h) => { setPopupSessionStart(h); setView('popup'); setPopupHour(h); };
+
+      return (
+        <ConfigProvider theme={{token:{colorPrimary:'#2c2c2c',borderRadius:6}}}>
+          {view==='popup'
+            ? <PopupForm defaultHour={popupHour} sessionStart={popupSessionStart} settings={settings} onClose={goWeek}/>
+            : view==='month'
+              ? <MonthView onBack={goWeek} onSelectDate={handleMonthSelect}/>
+              : <>
+                <WeekView onOpenSettings={openSettings} onShowMonth={goMonth} navToDate={navToDate}/>
+                {settingsOpen && <SettingsModal settings={settings} onSave={handleSaveSettings} onClose={()=>setSettingsOpen(false)} onTestPopup={handleTestPopup}/>}
+              </>
+          }
+        </ConfigProvider>
+      );
+    }
+
+    ReactDOM.createRoot(document.getElementById('root')).render(<App/>);
+  </script>
+</body>
+</html>

@@ -1,0 +1,159 @@
+<!DOCTYPE html><html lang="zh-CN"><head><meta charset="UTF-8"><title>日程管理 使用说明书 v1.0</title>
+<style>
+  @media print { @page { margin: 20mm 16mm; size: A4; } body { font-size: 11pt; } }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: -apple-system, "Microsoft YaHei", sans-serif; color: #2c2c2c; line-height: 1.75; max-width: 800px; margin: 40px auto; padding: 0 24px; background: #fff; }
+  h1 { font-size: 24px; margin: 32px 0 8px; border-bottom: 2px solid #2c2c2c; padding-bottom: 8px; }
+  h2 { font-size: 18px; margin: 28px 0 10px; color: #444; }
+  h3 { font-size: 15px; margin: 18px 0 6px; }
+  blockquote { border-left: 3px solid #ccc; padding-left: 14px; color: #888; margin: 10px 0; }
+  p, li { font-size: 14px; }
+  ul { padding-left: 20px; }
+  li { margin: 4px 0; }
+  table { width: 100%; border-collapse: collapse; margin: 12px 0; font-size: 13px; }
+  th, td { border: 1px solid #e0e0e0; padding: 8px 12px; text-align: left; }
+  th { background: #f5f5f5; font-weight: 600; }
+  code { background: #f4f4f4; padding: 1px 5px; border-radius: 3px; font-size: 13px; }
+  hr { border: none; border-top: 1px solid #e8e8e8; margin: 28px 0; }
+  strong { font-weight: 600; }
+  .meta { color: #aaa; font-size: 13px; }
+  @media print { .no-print { display: none; } }
+</style></head><body>
+
+<h1>日程管理 — 使用说明书 &amp; 更新日志</h1>
+<div class="meta">v1.0 · 2026-08-07</div>
+<hr>
+
+<h2>一、快速开始</h2>
+
+<h3>启动方式</h3>
+<table>
+<tr><th>方式</th><th>说明</th></tr>
+<tr><td>双击 日程管理.exe</td><td>打包后直接运行</td></tr>
+<tr><td>启动日程管理.bat</td><td>开发模式启动</td></tr>
+<tr><td>静默启动.bat</td><td>无窗口启动（适合开机自启）</td></tr>
+</table>
+
+<h3>最小化策略</h3>
+<p>关闭主窗口 <strong>不会退出程序</strong>。程序会在系统托盘运行，弹窗定时器持续生效。</p>
+<ul>
+<li>双击托盘图标 → 恢复主窗口</li>
+<li>右键托盘 → 立即记录 / 退出</li>
+</ul>
+
+<h3>开机自启</h3>
+<p>打开主窗口 → 设置（⚙）→ <strong>系统集成</strong> → 开启「开机自动启动」。</p>
+
+<h3>数据位置</h3>
+<p>所有日程、心情、备注保存在 <code>OneDrive/schedule-data/</code>，自动跨设备同步。</p>
+
+<hr>
+
+<h2>二、主功能说明</h2>
+
+<h3>2.1 周视图（日程总览）</h3>
+<ul>
+<li><strong>时间轴</strong>：从 6:00 开始，符合自然作息。滚轮可缩放（67%〜167%）</li>
+<li><strong>午夜分隔线</strong>：23:00→00:00 处有加深线</li>
+<li><strong>心情组件</strong>：每天下方有彩色圆点，点击弹出绿→红五色菜单</li>
+<li><strong>备注</strong>：点击「备注」可为整周写备注</li>
+<li><strong>视图切换</strong>：头栏「周 | 月」切换</li>
+</ul>
+
+<p><strong>添加日程：</strong></p>
+<ul>
+<li>点击空白格 → 弹出编辑</li>
+<li>右下角「+」浮动按钮 → 手动添加（自动推算当天最后一段结束时间）</li>
+<li>点击已有日程块 → 编辑</li>
+<li><strong>TimeBar 拖动条</strong>编辑时间：
+  <ul>
+  <li>拖动圆点把手调整开始/结束</li>
+  <li>按住 Shift + 滚轮：平移视窗（视野左右移动，不改变选择）</li>
+  <li>滚轮：缩放可见范围</li>
+  <li>「吸附」开关：开=松手对齐 30 分钟，关=保留任意分钟</li>
+  <li>「到现在」按钮：快速设置结束时间为当前时刻</li>
+  </ul>
+</li>
+</ul>
+
+<h3>2.2 月视图</h3>
+<ul>
+<li>头栏点击「月」进入</li>
+<li><strong>三个月份连续纵列</strong>：中心月高亮，上/下月 45% 淡入</li>
+<li><strong>每周一行</strong>：显示 7 天日期 + 心情点</li>
+<li><strong>本周标识</strong>：左侧 4px 竖线</li>
+<li><strong>心情平均色</strong>：整周底色由该周心情颜色 RGB 平均得出</li>
+<li><strong>跨月周</strong>：在相邻两月都显示，中心月天数始终高亮</li>
+<li><strong>翻月</strong>：滚到底/顶自动切月，新月份平滑居中</li>
+<li><strong>跳转周视图</strong>：点击任意周条 → 跳转到该周</li>
+</ul>
+
+<h3>2.3 快捷弹窗（每 2 小时）</h3>
+<ul>
+<li>8:00〜20:00，逢偶数整点自动弹出</li>
+<li><strong>累积时段</strong>：弹窗未处理时，下次触发自动扩大会话范围</li>
+<li><strong>常用项</strong>：预设分类+内容，一键填入</li>
+<li><strong>多选分类</strong>：点击「+分类」追加标签，首个为主色</li>
+<li><strong>添加 / 进行中</strong>：添加完成段或标记为进行中</li>
+<li><strong>完成 / 等会儿记录</strong>：都关闭弹窗</li>
+</ul>
+
+<hr>
+
+<h2>三、导入导出（数据迁移）</h2>
+<ul>
+<li>设置面板 → 数据管理</li>
+<li><strong>导出备份</strong>：下载完整 JSON（日程 + 备注 + 心情 + 设置 + 频率统计）</li>
+<li><strong>导入备份</strong>：
+  <ul>
+  <li>预览阶段：显示新旧记录数、冲突数</li>
+  <li>冲突警告</li>
+  <li>合并策略：智能合并（冲突取较新版本 / 完全替换）</li>
+  </ul>
+</li>
+</ul>
+
+<hr>
+
+<h2>四、分类与颜色</h2>
+<ul>
+<li>11 个内置分类：工作 / 学习 / 实验 / 写作 / 会议 / 阅读 / 运动 / 休息 / 社交 / 吃饭 / 赶路</li>
+<li>莫兰迪色盘，每个分类有唯一色值</li>
+<li>自定义分类自动分配新颜色</li>
+<li>日程块在周视图以分类色显示</li>
+</ul>
+
+<hr>
+
+<h2>五、心情记录</h2>
+<ul>
+<li>绿→红五色渐变：很好 / 不错 / 一般 / 不太好 / 糟糕</li>
+<li>周视图：每天下方的圆点 + 弹出菜单</li>
+<li>月视图：每天心情点 + 周底色平均</li>
+</ul>
+
+<hr>
+
+<h2>六、更新日志</h2>
+<h3>2026-08-07（本轮改动汇总）</h3>
+<table>
+<tr><th width="120">模块</th><th>改动</th></tr>
+<tr><td><strong>月视图</strong></td><td>新增连续纵列月视图，三月份叠放，滚到底翻月，跨月周兼容</td></tr>
+<tr><td><strong>TimeBar</strong></td><td>1分钟精度拖动 + 松手吸附开关（持久化记忆）、Shift+滚轮平移视窗、自适应容器宽度、baseMin偏移修正弹窗bug</td></tr>
+<tr><td><strong>手动添加</strong></td><td>起始时间自动推算当日最后事件结束点</td></tr>
+<tr><td><strong>到现在按钮</strong></td><td>编辑弹窗时间条旁，一键设终点为当前时刻</td></tr>
+<tr><td><strong>分类多选</strong></td><td>周视图编辑 + 弹窗均支持多个分类标签</td></tr>
+<tr><td><strong>心情</strong></td><td>五色提高饱和度，绿→红对比更明显</td></tr>
+<tr><td><strong>缩放</strong></td><td>周视图滚轮缩放（67%〜167%），日程块跟随</td></tr>
+<tr><td><strong>数据同步</strong></td><td>数据目录改为 OneDrive 自动同步</td></tr>
+<tr><td><strong>后台常驻</strong></td><td>关闭窗口 → 系统托盘，定时弹窗继续跑</td></tr>
+<tr><td><strong>开机自启</strong></td><td>设置面板 Switch 开关</td></tr>
+<tr><td><strong>导入导出</strong></td><td>JSON 备份 / 智能合并</td></tr>
+<tr><td><strong>UI 优化</strong></td><td>TimeBar 放大 15%、网格线统一柔和色、时间轴 6:00 起</td></tr>
+<tr><td><strong>月视图滚轮</strong></td><td>正常滚动不切月，滚到底/顶才切换</td></tr>
+</table>
+
+<hr>
+<p style="color:#888;font-size:12px">如有问题，关闭并重开即可恢复。</p>
+
+</body></html>
