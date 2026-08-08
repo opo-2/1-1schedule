@@ -50,7 +50,7 @@
       }
     ],
     "win": {
-      "icon": "build/icon.png",
+      "icon": "build/icon-512.png",
       "target": ["dir"],
       "signAndEditExecutable": false
     },
