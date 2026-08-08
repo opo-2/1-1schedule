@@ -56,7 +56,7 @@
     },
     "mac": {
       "icon": "build/icon.png",
-      "target": ["dmg", "dir"],
+      "target": [{ "target": "dmg", "arch": ["x64", "arm64"] }],
       "category": "public.app-category.productivity"
     },
     "nsis": {

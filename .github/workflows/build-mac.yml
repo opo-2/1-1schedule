@@ -18,6 +18,7 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           CSC_IDENTITY_AUTO_DISCOVER: 'false'
+          ELECTRON_BUILDER_CACHE: /tmp/electron-builder-cache
       - uses: actions/upload-artifact@v4
         with:
           name: 1+1schedule-mac
