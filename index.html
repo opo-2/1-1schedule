@@ -61,6 +61,9 @@
       saveAllEvents(all);
     }
     function deleteEvent(id) { saveAllEvents(loadAllEvents().filter(e => e.id !== id)); }
+    const TODO_KEY = 'schedule_todos';
+    function loadTodos() { try { return JSON.parse(localStorage.getItem(TODO_KEY)||'[]'); } catch { return []; } }
+    function saveTodos(todos) { localStorage.setItem(TODO_KEY, JSON.stringify(todos)); }
     function loadNotes() { try { return JSON.parse(localStorage.getItem(NOTES_KEY)||'{}'); } catch { return {}; } }
     function saveNote(monday, text) { const n = loadNotes(); n[monday] = text; localStorage.setItem(NOTES_KEY, JSON.stringify(n)); }
     function getNote(monday) { return loadNotes()[monday] || ''; }
@@ -608,8 +611,69 @@
     }
 
 
+    // ==================== 列表视图 ====================
+    function ListView({ onBack }) {
+      const [events, setEvents] = useState([]);
+
+      useEffect(() => {
+        const all = loadAllEvents();
+        // 合并待办
+        loadTodos().forEach(t => {
+          all.push({ id: t.id, date: t.date, startTime: t.time, endTime: '', description: t.description, category: '待办', color: '#faad14', isTodo: true });
+        });
+        all.sort((a,b) => (b.date+b.startTime).localeCompare(a.date+a.startTime));
+        setEvents(all);
+      }, []);
+
+      const eventsByDate = {};
+      events.forEach(e => {
+        if (!eventsByDate[e.date]) eventsByDate[e.date] = [];
+        eventsByDate[e.date].push(e);
+      });
+      const dates = Object.keys(eventsByDate).sort((a,b) => b.localeCompare(a));
+
+      if (events.length === 0) {
+        return React.createElement('div', { style:{height:'100vh',display:'flex',flexDirection:'column',background:'#f8f8f6'} },
+          React.createElement('div', { style:{display:'flex',alignItems:'center',padding:'10px 20px',background:'#fff',borderBottom:'1px solid #e8e8e8'} },
+            React.createElement(Button, { size:'small', onClick:onBack }, '\u2190 周视图')
+          ),
+          React.createElement('div', { style:{flex:1,display:'flex',alignItems:'center',justifyContent:'center',color:'#aaa',fontSize:14} }, '\u8fd8\u6ca1\u6709\u65e5\u7a0b\u8bb0\u5f55')
+        );
+      }
+
+      return React.createElement('div', { style:{height:'100vh',display:'flex',flexDirection:'column',background:'#f8f8f6'} },
+        React.createElement('div', { style:{display:'flex',alignItems:'center',gap:12,padding:'10px 20px',background:'#fff',borderBottom:'1px solid #e8e8e8'} },
+          React.createElement(Button, { size:'small', onClick:onBack }, '\u2190 周视图'),
+          React.createElement('span', { style:{fontSize:16,fontWeight:600,color:'#2c2c2c'} }, '\u65e5\u7a0b\u5217\u8868'),
+          React.createElement('span', { style:{fontSize:12,color:'#aaa',marginLeft:'auto'} }, events.length + ' \u6761\u8bb0\u5f55')
+        ),
+        React.createElement('div', { style:{flex:1,overflow:'auto',padding:'12px 20px'} },
+          dates.map(date =>
+            React.createElement('div', { key:date, style:{marginBottom:20} },
+              React.createElement('div', { style:{fontSize:13,fontWeight:600,color:'#2c2c2c',marginBottom:8,paddingLeft:4,borderLeft:'3px solid #2c2c2c',padding:'3px 0 3px 10px'} },
+                dayjs(date).format('M\u6708D\u65e5 dddd')
+              ),
+              eventsByDate[date].sort((a,b) => a.startTime.localeCompare(b.startTime)).map(evt => {
+                const bg = evt.color || getColorForCategory(evt.category||'');
+                const ist = evt.isTodo;
+                return React.createElement('div', { key:evt.id, style:{display:'flex',alignItems:'flex-start',padding:'10px 12px',background: ist?'#fffbe6':'#fff',borderRadius:8,marginBottom:6,boxShadow:'0 1px 3px rgba(0,0,0,0.04)',border: ist?'1px dashed #faad14':'none',cursor:'pointer'} },
+                  React.createElement('span', { style:{display:'inline-block',width:10,height:10,borderRadius:3,background: ist?'#faad14':bg,marginTop:4,marginRight:10,flexShrink:0} }),
+                  React.createElement('div', { style:{flex:1,minWidth:0} },
+                    React.createElement('div', { style:{fontSize:14,color:'#2c2c2c',marginBottom:2} }, (ist ? '📋 ' : '') + evt.description),
+                    React.createElement('div', { style:{fontSize:12,color:'#999'} }, evt.startTime + (evt.endTime ? ' - ' + evt.endTime : ''))
+                  ),
+                  evt.category ? React.createElement('span', { style:{fontSize:11,color:'#aaa',background:'#f5f5f5',padding:'2px 8px',borderRadius:10,whiteSpace:'nowrap',flexShrink:0} }, evt.category) : null
+                );
+              })
+            )
+          )
+        )
+      );
+    }
+
+
     // ==================== 周视图 ====================
-    function WeekView({ onNav, onOpenSettings, onShowMonth, navToDate }) {
+    function WeekView({ onNav, onOpenSettings, onShowMonth, onShowList, navToDate }) {
       const [currentMonday, setCurrentMonday] = useState(() => {
         const d = new Date(), day = d.getDay();
         d.setDate(d.getDate() - day + (day===0?-6:1));
@@ -633,6 +697,7 @@
       const [weekNote, setWeekNote] = useState('');
       const [moods, setMoods] = useState({});
       const [moodOpen, setMoodOpen] = useState(null);
+      const [todoOpen, setTodoOpen] = useState(false);
 
       // 心情选择辅助函数
       const selectMood = (date, idx) => { saveMood(date, idx); setMoods(prev => ({...prev, [date]:idx})); setMoodOpen(null); };
@@ -684,18 +749,17 @@
       // 点击网格
       const handleCell = (date, hour) => {
         setSelDate(date);
-        setEdit({ startTime: `${String(hour).padStart(2,'0')}:00` });
+        setEdit({ startTime: findLatestEnd(date) });
         setModalOpen(true);
       };
       const handleEvent = (evt) => { setSelDate(evt.date); setEdit({...evt}); setModalOpen(true); };
 
       // 手动添加
       const findLatestEnd = (date) => {
-        // 每次都从存储读，避免 React state 滞后
-        const fresh = loadAllEvents().filter(e => e.date === date).map(e => ({
-          s: timeToMin(e.startTime),
-          e: e.endTime ? timeToMin(e.endTime) : timeToMin(e.startTime) + 60,
-        })).sort((a,b) => b.e - a.e);
+        const fresh = loadAllEvents()
+          .filter(e => e.date === date && e.endTime)
+          .map(e => ({ s: timeToMin(e.startTime), e: timeToMin(e.endTime) }))
+          .sort((a,b) => b.e - a.e);
 
         if (fresh.length === 0) {
           // 无事件：今天=现在；未来=6:00
@@ -706,6 +770,13 @@
 
         // 有事件：永远取最后事件的结束时间（不与现在取 max）
         return minToTime(fresh[0].e);
+      };
+
+      const openTodoAdd = () => {
+        const t = todayStr();
+        setSelDate(t);
+        setEdit({ startTime: findLatestEnd(t), isTodo: true });
+        setTodoOpen(true);
       };
 
       const openManualAdd = () => {
@@ -732,9 +803,15 @@
           status: edit.status || 'completed',
           createdAt: edit.createdAt || new Date().toISOString()
         };
-        saveEvent(evt);
+        if (edit.isTodo) {
+          const todos = loadTodos();
+          todos.push({ id: generateId(), date: evt.date, time: evt.startTime, description: evt.description, createdAt: new Date().toISOString() });
+          saveTodos(todos);
+        } else {
+          saveEvent(evt);
+        }
         incrementUsage(evt.description);
-        setModalOpen(false); setAddModalOpen(false); setEdit({}); reload();
+        setModalOpen(false); setAddModalOpen(false); setTodoOpen(false); setEdit({}); reload();
       };
 
       const handleDelete = () => {
@@ -753,6 +830,7 @@
             <div style={{display:'flex',alignItems:'center',gap:6}}>
               <Button size="small" type="text" onClick={onShowMonth} style={{fontWeight:600,fontSize:13}}>月</Button>
               <Button size="small" type="text" style={{fontWeight:600,fontSize:13,color:'#2c2c2c'}}>周</Button>
+              <Button size="small" type="text" onClick={onShowList} style={{fontWeight:600,fontSize:13}}>列表</Button>
               <span style={{width:1,height:16,background:'#e0e0e0',margin:'0 4px'}}/>
               <Tooltip title={showNote?'收起备注':'展开备注'}>
                 <Button size="small" type={showNote?'primary':'default'} icon={<EditOutlined/>}
@@ -767,6 +845,7 @@
               <Button icon={<LeftOutlined/>} onClick={prevWeek} type="text"/>
               <Button type="link" onClick={thisWeek} style={{fontWeight:500}}>{currentMonday} 周</Button>
               <Button icon={<RightOutlined/>} onClick={nextWeek} type="text"/>
+              <Tooltip title="刷新"><Button size="small" onClick={reload} style={{marginLeft:4}}>↻</Button></Tooltip>
               <span style={{fontSize:10,color:'#bbb',marginLeft:8}}>Ctrl+滚轮缩放 {Math.round(rowHeight/30*100)}%</span>
             </div>
           </div>
@@ -828,13 +907,13 @@
                       <div onClick={() => clearMood(d.date)} style={{
                         padding:'2px 10px', fontSize:10, color:'#aaa', cursor:'pointer',
                         textAlign:'center', borderRadius:3,
-                      }} onMouseEnter={e => e.target.style.background="#eee"} onMouseLeave={e => e.target.style.background="transparent"}>清除</div>
+                      }}>清除</div>
                       <div style={{width:1,height:1,background:'#eee',margin:'2px 0'}}/>
                       {MOODS.map(function(m, i) {
                         return <div key={i} onClick={() => selectMood(d.date, i)} style={{
                           width:22, height:22, cursor:'pointer', borderRadius:11, background:m.color,
                           boxShadow: moodIdx===i ? `0 0 0 2px ${m.color}, 0 0 0 4px #fff` : 'none',
-                        }} onMouseEnter={e => e.target.style.opacity="0.7"} onMouseLeave={e => e.target.style.opacity="1"} title={m.label}/>;
+                        }} title={m.label}/>;
                       })}
                     </div>
                   </>}
@@ -855,6 +934,21 @@
                     }}
                       onClick={()=>handleCell(d.date,(6+Math.floor(i/2))%24)}/>
                   ))}
+                  {/* 待办渲染 */}
+                  {loadTodos().filter(t => t.date === d.date).map(t => {
+                    const sm = timeToMin(t.time);
+                    const adj = m => (m - 360 + 1440) % 1440;
+                    const tops = adj(sm) / 1440 * 48 * rowHeight;
+                    return <div key={'todo_'+t.id} onClick={(e) => { e.stopPropagation(); const todo = loadTodos().filter(td => td.id !== t.id); saveTodos(todo); reload(); }} title="双击删除待办" style={{
+                      position:'absolute', top:tops, left:4, right:4, height:24,
+                      background:'rgba(250,173,20,0.1)', border:'1px dashed #faad14', borderRadius:4,
+                      padding:'0 5px', overflow:'hidden', cursor:'pointer', zIndex:2,
+                      display:'flex', alignItems:'center',
+                    }}>
+                      <span style={{fontSize:9,color:'#faad14',fontWeight:600}}>{t.time}</span>
+                      <span style={{fontSize:10,color:'#b8860b',marginLeft:4,whiteSpace:'nowrap',overflow:'hidden',textOverflow:'ellipsis'}}>{t.description}</span>
+                    </div>;
+                  })}
                   {events.filter(e=>e.date===d.date).map(evt => {
                     const bg = evt.color || getColorForCategory(evt.category||'');
                     const sm = timeToMin(evt.startTime), em = evt.endTime ? timeToMin(evt.endTime) : sm+30;
@@ -878,11 +972,23 @@
           </div>
 
           {/* 手动添加浮动按钮 */}
-          <Tooltip title="手动添加日程">
+          <Tooltip title="添加待办">
+            <Button icon={<PlusOutlined/>} shape="circle" size="large"
+              onClick={openTodoAdd}
+              style={{position:'fixed',bottom:90,right:38,width:40,height:40,boxShadow:'0 3px 10px rgba(0,0,0,0.12)',zIndex:100,background:'#faad14',borderColor:'#faad14',color:'#fff'}}/>
+          </Tooltip>
+          <Tooltip title="添加日程">
             <Button type="primary" shape="circle" size="large" icon={<PlusOutlined/>}
               onClick={openManualAdd}
               style={{position:'fixed',bottom:32,right:32,width:52,height:52,boxShadow:'0 4px 14px rgba(0,0,0,0.15)',zIndex:100}}/>
           </Tooltip>
+
+          {/* 待办添加弹窗 */}
+          <Modal title="添加待办" open={todoOpen} onOk={saveFromForm}
+            onCancel={()=>{setTodoOpen(false);setEdit({});}} okText="添加" cancelText="取消" width={440}>
+            <EventForm edit={edit} setEdit={setEdit} selDate={selDate} setSelDate={setSelDate}
+              onSave={saveFromForm} isFull={true}/>
+          </Modal>
 
           {/* 网格点击编辑弹窗 */}
           <Modal title={edit.id?'编辑日程':'添加日程'} open={modalOpen} onOk={saveFromForm}
@@ -1266,6 +1372,7 @@
 
       const goWeek = () => { setView('week'); setPopupSessionStart(null); };
       const goMonth = () => setView('month');
+      const goList = () => setView('list');
       const [navToDate, setNavToDate] = useState(null);
       const handleMonthSelect = (date) => { setNavToDate(date); setView('week'); };
       const openSettings = () => setSettingsOpen(true);
@@ -1278,8 +1385,10 @@
             ? <PopupForm defaultHour={popupHour} sessionStart={popupSessionStart} settings={settings} onClose={goWeek}/>
             : view==='month'
               ? <MonthView onBack={goWeek} onSelectDate={handleMonthSelect}/>
+              : view==='list'
+              ? <ListView onBack={goWeek}/>
               : <>
-                <WeekView onOpenSettings={openSettings} onShowMonth={goMonth} navToDate={navToDate}/>
+                <WeekView onOpenSettings={openSettings} onShowMonth={goMonth} onShowList={goList} navToDate={navToDate}/>
                 {settingsOpen && <SettingsModal settings={settings} onSave={handleSaveSettings} onClose={()=>setSettingsOpen(false)} onTestPopup={handleTestPopup}/>}
               </>
           }

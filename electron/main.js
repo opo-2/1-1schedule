@@ -81,11 +81,13 @@ function createMainWindow() {
     },
   });
 
+  mainWindow.webContents.openDevTools({ mode: 'detach' });
 
   if (isDev) {
     mainWindow.loadURL('http://localhost:5173');
   } else {
-    mainWindow.loadFile(path.join(__dirname, '../dist/index.html'));
+    const argv = process.argv.find(a => a.startsWith('http://'));
+    mainWindow.loadURL(argv || path.join('file://', __dirname, '../dist/index.html'));
   }
 
   // 关闭窗口 → 最小化到托盘（不退出）
